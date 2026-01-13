@@ -1,13 +1,17 @@
 # PM Plugin for Claude Code
 
-프로젝트 문서 관리 및 작업 흐름 조율 플러그인.
+AI 기반 프로젝트 관리 플러그인.
 
-PROJECT.yaml 기반 체계적 문서 관리, 마일스톤 추적, **문서 + 시스템 무결성 검증**, 분석 보고서를 제공합니다.
+**Plan-and-Execute**, **ReAct**, **Reflexion** 패턴을 결합한 하이브리드 에이전트 아키텍처로
+MCP 서버를 통해 프로젝트 관리 데이터와 통합됩니다.
 
-**핵심 특징:**
-- 11가지 항목의 프로젝트 무결성 검증 (문서 6 + 시스템 5)
-- 모든 명령어에서 **다음 권장 작업 자동 안내**
-- 번다운 차트, velocity 분석, 자동 보고서 생성
+## 핵심 특징
+
+- **MCP 통합**: Resources/Tools/Prompts 패턴으로 98.7% 토큰 절감
+- **이벤트 소싱**: 완전한 감사 추적 및 시점별 상태 재구성
+- **하이브리드 에이전트**: 전략적 계획 + 적응적 실행 + 자기 개선
+- **Git 통합**: Linear/GitHub 스타일 브랜치 명명 및 magic words
+- **토큰 효율화**: 계층적 요약 (L0-L3) 및 70% 압축 규칙
 
 ## 설치
 
@@ -16,138 +20,227 @@ PROJECT.yaml 기반 체계적 문서 관리, 마일스톤 추적, **문서 + 시
 /plugins add pm@done
 ```
 
-## 명령어
+## 아키텍처
 
-### 기본 명령어
-
-| 명령어 | 설명 |
-|--------|------|
-| `/pm:help` | PM 플러그인 도움말 표시 |
-| `/pm:init [project-name]` | 새 프로젝트 문서 체계 초기화 |
-| `/pm:status` | 마일스톤 진행률, 문서 상태, 권장 작업 안내 |
-| `/pm:validate` | 문서 + 시스템 무결성 검증 (11가지 항목) |
-| `/pm:new-plan <name>` | 새 계획 문서 생성 |
-| `/pm:new-report <topic> [type]` | 보고서 생성 |
-| `/pm:sync` | MILESTONES.md 진행률 자동 동기화 |
-| `/pm:adopt` | 기존 프로젝트에 PM 문서 체계 도입 |
-
-### 작업 관리 명령어
-
-| 명령어 | 설명 |
-|--------|------|
-| `/pm:add-task <name> [options]` | 새 작업 추가 (위치 지정 가능) |
-| `/pm:plan-tasks` | 인터랙티브 마일스톤 재구성 |
-
-```bash
-# 작업 추가 예시
-/pm:add-task "새 기능 구현"                    # 마지막에 추가
-/pm:add-task "테스트 작성" --after "API 구현"  # 특정 작업 뒤에 추가
-/pm:add-task "긴급 수정" --position 1          # 첫 번째 위치에 추가
-
-# 인터랙티브 재구성
-/pm:plan-tasks                                  # 작업 추가/순서변경/제거
-/pm:plan-tasks --analyze                        # 분석만 수행
-/pm:plan-tasks --auto-sort                      # 자동 정렬
+```
+Plan-and-Execute (전략적 계획)
+        ↓
+    ReAct (적응적 실행)
+        ↓
+   Reflexion (자기 개선)
+        ↓
+    MCP Server (데이터 통합)
+        ↓
+    SQLite (이벤트 소싱)
 ```
 
-### 분석 명령어
+## MCP 도구
 
-| 명령어 | 설명 |
-|--------|------|
-| `/pm:burndown` | ASCII 번다운 차트 생성 |
-| `/pm:velocity` | 마일스톤별 velocity 분석 |
-| `/pm:auto-report [type]` | 자동 보고서 생성 (daily/weekly/monthly) |
-| `/pm:code-changes` | git 기반 코드 변경 분석 |
-
-## 문서 체계
-
-### PROJECT.yaml
-
-프로젝트 루트에 생성되는 설정 파일:
-
-```yaml
-name: my-project
-version: 0.1.0
-
-core_docs:
-  vision: docs/MANIFESTO.md
-  progress: docs/MILESTONES.md
-
-plans_dir: docs/plans
-reports_dir: docs/reports
+### Resources (정적)
+```
+pm://schema/task          # 태스크 스키마
+pm://schema/sprint        # 스프린트 스키마
+pm://meta/velocity        # 속도 계산 방법
+pm://docs/conventions     # PM 컨벤션
 ```
 
-### 핵심 문서
+### Tools (동적)
+```typescript
+// CRUD
+pm_task_create(title, projectId, ...)
+pm_task_list(filter?)
+pm_task_get(taskId)
+pm_task_update(taskId, updates)
+pm_task_status(taskId, status)
 
-- **MANIFESTO.md**: 프로젝트 비전, 목표, 핵심 가치
-- **MILESTONES.md**: 마일스톤 및 태스크 진행 추적
+// Sprint
+pm_sprint_create(name, startDate, endDate)
+pm_sprint_status(sprintId)
+pm_sprint_add_tasks(sprintId, taskIds)
 
-### 보고서 유형
+// Analytics
+pm_velocity_calculate(projectId)
+pm_burndown_data(sprintId)
 
-| 유형 | 설명 | 용도 |
-|------|------|------|
-| `implementation` | 구현 보고서 (기본) | 기능 완료 후 |
-| `experiment` | 실험 보고서 | ML 실험 결과 |
-| `decision` | 결정 기록 (ADR) | 기술 결정 |
-| `retrospective` | 회고 보고서 | 스프린트/마일스톤 회고 |
-
-## 검증 항목 (/pm:validate)
-
-### Part A: 문서 무결성 (6가지)
-
-1. **📁 구조 검증**: PROJECT.yaml 필수 필드
-2. **📄 문서 존재**: core_docs 파일 존재 확인
-3. **📝 문서 품질**: 빈 파일, 템플릿 플레이스홀더, 오래된 문서
-4. **🔗 일관성**: 미등록 문서, 진행률 동기화 상태
-5. **🧹 정리 필요**: 오래된 DRAFT, 임시 파일
-6. **📊 진행 상황**: 마일스톤 정보, 블로커 존재
-
-### Part B: 시스템 무결성 (5가지)
-
-7. **🔍 코드 품질**: 린터, 타입 체크, 포맷터 실행
-8. **🧪 테스트 상태**: 테스트 존재 및 통과 여부
-9. **🏗️ 빌드 상태**: 빌드 스크립트 존재 및 성공 여부
-10. **📦 의존성**: outdated 패키지, 보안 취약점
-11. **🔧 환경 설정**: .env 일관성, 설정 파일 존재
-
-### 검증 모드
-
-```bash
-/pm:validate           # 전체 검증 (기본)
-/pm:validate docs      # 문서 무결성만
-/pm:validate system    # 시스템 무결성만
-/pm:validate quick     # 빠른 검증 (빌드/테스트 실행 생략)
+// Git Integration
+pm_link_commit(taskId, commitSha)
+pm_task_from_branch()
 ```
 
-## ignore 설정
-
-PROJECT.yaml에서 검증 제외 항목 설정:
-
-```yaml
-ignore:
-  files:
-    - "docs/archived/*"
-    - "*.bak"
-  rules:
-    # 문서 관련
-    - unregistered_docs
-    - stale_documents
-    - old_drafts
-    - temp_files
-    # 시스템 관련
-    - outdated_packages    # outdated 패키지 경고 무시
-    - security_low         # low severity 취약점 무시
-    - test_coverage        # 커버리지 검사 무시
+### Prompts (템플릿)
+```
+sprint-planning      # 스프린트 계획 세션
+retrospective        # 회고 세션
+daily-standup        # 데일리 스탠드업
+risk-assessment      # 리스크 평가
 ```
 
 ## 에이전트
 
-| 에이전트 | 설명 |
-|----------|------|
-| `project-analyzer` | 프로젝트 구조 분석 및 문서 제안 |
-| `milestone-tracker` | 마일스톤 진행 추적 및 블로커 식별 |
-| `analytics-reporter` | 자동 보고서 생성 및 트렌드 분석 |
-| `code-analyzer` | git 코드 변경 패턴 분석 |
+| 에이전트 | 패턴 | 역할 |
+|----------|------|------|
+| `pm-planner` | Plan-and-Execute | 전략적 계획, 스프린트 계획, 에픽 분해 |
+| `pm-executor` | ReAct | 적응적 실행, 백로그 정리, 의존성 조사 |
+| `pm-reflector` | Reflexion | 자기 개선, 추정 보정, 회고 학습 |
+| `ticket-worker` | - | 이슈 구현 |
+
+## Git 통합
+
+### 브랜치 명명
+```
+PM-123-feature-description
+```
+
+### Magic Words (커밋 메시지)
+```
+fixes PM-123    # 태스크 자동 완료
+closes PM-123   # 태스크 자동 완료
+refs PM-123     # 태스크 링크 (상태 변경 없음)
+```
+
+### 훅
+- **PreToolUse(git commit)**: 태스크 링크 검증
+- **PostToolUse(git commit)**: 커밋 연결 및 magic word 처리
+- **Stop**: 세션 요약 저장
+
+## 토큰 효율화
+
+### 계층적 요약
+| Level | 내용 | 트리거 |
+|-------|------|--------|
+| L0 (Raw) | 개별 업데이트 | N/A |
+| L1 (Story) | 스토리 요약 | 20 메시지마다 |
+| L2 (Epic) | 에픽 진행 | 주간/마일스톤 |
+| L3 (Project) | 프로젝트 헬스 | 세션 경계 |
+
+### 70% 규칙
+컨텍스트 70% 도달 전 압축. 압축 후 40-50% 작업 공간 유지.
+
+## 저장소 계층
+
+| Tier | 저장소 | 내용 | 보존 |
+|------|--------|------|------|
+| Hot | 메모리 | 활성 세션, 최근 출력 | 세션 |
+| Warm | SQLite | 히스토리, 스냅샷 | 일~주 |
+| Cold | Vector DB | 임베딩, 아카이브 | 영구 |
+
+## 이벤트 타입
+
+```typescript
+type TaskEvent =
+  | 'TaskCreated'
+  | 'TaskStatusChanged'
+  | 'TaskEstimated'
+  | 'TaskLinkedToCommit'
+  | 'TaskAddedToSprint'
+  | 'TaskCompleted';
+```
+
+## 테스트
+
+### 테스트 구조
+
+| 유형 | 테스트 수 | 설명 |
+|------|----------|------|
+| 단위/통합 | 525개 | Mock 기반, 빠른 피드백 |
+| E2E | 44개 | 실제 GitHub CLI, Git, SQLite |
+| **총계** | **569개** | 커버리지 81%+ |
+
+### 실행 방법
+
+```bash
+# 단위/통합 테스트
+npm test
+
+# E2E 테스트 (실제 API 사용)
+npm run test:e2e
+
+# 커버리지 리포트
+npm run test:coverage
+
+# E2E 테스트 리소스 강제 정리
+npm run test:e2e:cleanup
+```
+
+### E2E 테스트
+
+Mock 없이 실제 서비스와 통합 테스트:
+
+- **GitHub CLI**: 이슈 CRUD, 코멘트, 상태 변경
+- **Git 명령어**: 브랜치, 커밋 히스토리, 핫스팟 분석
+- **파일 기반 SQLite**: 실제 DB 파일 생성/삭제
+- **MCP 워크플로우**: 프로젝트 → 태스크 → 스프린트 → 완료
+
+### 요구사항
+
+```bash
+# GitHub CLI 인증 (E2E 테스트용)
+gh auth login
+
+# 인증 확인
+gh auth status
+```
+
+> **참고**: API 키 불필요. `gh` CLI 인증만으로 E2E 테스트 실행 가능.
+
+## 디렉토리 구조
+
+```
+plugins/pm/
+├── .claude-plugin/
+│   ├── plugin.json         # 매니페스트
+│   └── mcp.json            # MCP 설정
+├── mcp/
+│   ├── server.ts           # MCP 서버 진입점
+│   └── lib/
+│       ├── db.ts           # SQLite 래퍼
+│       ├── repositories.ts # 리포지토리 레이어
+│       └── server-handlers.ts # MCP 핸들러
+├── storage/
+│   ├── schema.sql          # SQLite 스키마
+│   └── lib/events.ts       # 이벤트 소싱
+├── agents/
+│   ├── pm-planner.md       # Plan-and-Execute
+│   ├── pm-executor.md      # ReAct
+│   ├── pm-reflector.md     # Reflexion
+│   └── ticket-worker.md    # 이슈 구현
+├── commands/
+│   ├── init.md             # /pm:init
+│   ├── task.md             # /pm:task
+│   ├── sprint.md           # /pm:sprint
+│   └── status.md           # /pm:status
+├── skills/pm/
+│   ├── SKILL.md            # 스킬 정의
+│   └── references/         # 템플릿, 스키마
+├── hooks/
+│   ├── hooks.json          # 훅 설정
+│   └── scripts/            # 훅 스크립트
+├── lib/
+│   ├── github.ts           # GitHub CLI 래퍼
+│   ├── git.ts              # Git 명령어 래퍼
+│   └── summarizer.ts       # 토큰 효율화
+├── tests/
+│   ├── unit/               # 단위 테스트
+│   ├── integration/        # 통합 테스트 (Mock 기반)
+│   ├── helpers/            # 테스트 헬퍼
+│   └── e2e/                # E2E 테스트 (실제 API)
+│       ├── config/         # Vitest E2E 설정
+│       ├── helpers/        # E2E 헬퍼
+│       ├── github/         # GitHub CLI 테스트
+│       ├── git/            # Git 명령어 테스트
+│       ├── mcp/            # MCP 워크플로우 테스트
+│       └── integration/    # 동기화 테스트
+├── package.json            # NPM 설정
+├── tsconfig.json           # TypeScript 설정
+├── ARCHITECTURE.md         # 아키텍처 문서
+├── CORE.md                 # 설계 원칙
+└── README.md               # 이 문서
+```
+
+## 참고 자료
+
+- [CORE.md](./CORE.md) - 설계 원칙 및 연구 기반
+- [ARCHITECTURE.md](./ARCHITECTURE.md) - 상세 아키텍처
 
 ## 라이선스
 

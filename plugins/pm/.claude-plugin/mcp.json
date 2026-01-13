@@ -1,0 +1,12 @@
+{
+  "$schema": "https://anthropic.com/claude-code/mcp.schema.json",
+  "mcpServers": {
+    "pm-server": {
+      "command": "npx",
+      "args": ["tsx", "${CLAUDE_PLUGIN_ROOT}/mcp/server.ts"],
+      "env": {
+        "PM_DB_PATH": "${PROJECT_ROOT}/.claude/pm.db"
+      }
+    }
+  }
+}

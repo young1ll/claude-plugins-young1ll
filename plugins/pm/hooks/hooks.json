@@ -1,27 +1,89 @@
 {
   "hooks": [
     {
+      "event": "PostToolUse",
       "matcher": {
-        "tool_name": "Write|Edit",
-        "file_paths": ["**/MILESTONES.md"]
-      },
-      "hooks": [
-        {
-          "type": "command",
-          "command": "echo '📊 MILESTONES.md가 수정되었습니다. /pm:sync로 진행률을 동기화하세요.'",
-          "timeout": 5000
-        }
-      ]
-    },
-    {
-      "matcher": {
-        "tool_name": "Write|Edit",
-        "file_paths": ["**/MILESTONES.md"]
+        "tool_name": "Bash",
+        "command_pattern": "git checkout -b|git switch -c"
       },
       "hooks": [
         {
           "type": "prompt",
-          "prompt": "MILESTONES.md 파일이 수정되었습니다. 파일 내용을 확인하여 현재 마일스톤의 진행률이 100%인지 확인하세요. 만약 Progress: 100% 또는 모든 태스크가 [x]로 완료된 경우, 사용자에게 '/pm:auto-report monthly' 또는 '/pm:new-report retrospective'로 회고 보고서 작성을 제안하세요. 마일스톤이 완료되지 않았다면 아무 것도 출력하지 마세요.",
+          "prompt": "New branch created. Check if it follows LEVEL_1 naming:\n\nFormat: {issue_number}-{type}-{description}\nTypes: feat, fix, refactor, docs, test, chore\n\nIf task ID detected:\n1. Load task context with pm_task_get\n2. Update task status to 'in_progress' with pm_task_status\n3. Note: Task timer started"
+        }
+      ]
+    },
+    {
+      "event": "PreToolUse",
+      "matcher": {
+        "tool_name": "Bash",
+        "command_pattern": "git commit"
+      },
+      "hooks": [
+        {
+          "type": "prompt",
+          "prompt": "Before committing, verify task linking (LEVEL_1):\n\n1. Check current branch for task ID pattern\n2. Ensure commit follows Conventional Commits: type(scope): description\n3. Include magic words if applicable:\n   - 'fixes #XX' / 'closes #XX': Auto-complete task (PR merge)\n   - 'refs #XX': Link without status change\n   - 'wip #XX': Mark as in_progress\n   - 'review #XX': Mark as in_review"
+        }
+      ]
+    },
+    {
+      "event": "PostToolUse",
+      "matcher": {
+        "tool_name": "Bash",
+        "command_pattern": "git commit"
+      },
+      "hooks": [
+        {
+          "type": "command",
+          "command": "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/post-commit.sh",
+          "timeout": 10000
+        }
+      ]
+    },
+    {
+      "event": "PreToolUse",
+      "matcher": {
+        "tool_name": "Bash",
+        "command_pattern": "git push"
+      },
+      "hooks": [
+        {
+          "type": "prompt",
+          "prompt": "Before pushing (LEVEL_1 workflow):\n\n1. Check for unpushed commits\n2. If first push to branch, suggest creating PR:\n   - Use 'gh pr create' with template\n   - Include 'fixes #XX' in PR body for auto-close\n3. Update task status to 'in_review' if PR created"
+        }
+      ]
+    },
+    {
+      "event": "PostToolUse",
+      "matcher": {
+        "tool_name": "Write|Edit",
+        "file_paths": ["**/MILESTONES.md", "**/tasks/**"]
+      },
+      "hooks": [
+        {
+          "type": "prompt",
+          "prompt": "Task document modified. Consider:\n1. Use /pm:status to check progress\n2. If milestone complete, trigger retrospective (pm-reflector)"
+        }
+      ]
+    },
+    {
+      "event": "Stop",
+      "matcher": {},
+      "hooks": [
+        {
+          "type": "command",
+          "command": "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/session-summary.sh",
+          "timeout": 15000
+        }
+      ]
+    },
+    {
+      "event": "SessionStart",
+      "matcher": {},
+      "hooks": [
+        {
+          "type": "command",
+          "command": "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/session-start.sh",
           "timeout": 10000
         }
       ]

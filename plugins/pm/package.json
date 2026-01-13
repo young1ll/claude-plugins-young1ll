@@ -1,0 +1,52 @@
+{
+  "name": "@pm/mcp-server",
+  "version": "1.0.0",
+  "description": "PM Plugin MCP Server for Claude Code",
+  "type": "module",
+  "main": "dist/mcp/server.js",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx watch mcp/server.ts",
+    "start": "node dist/mcp/server.js",
+    "db:init": "sqlite3 .claude/pm.db < storage/schema.sql",
+    "db:migrate": "sqlite3 .claude/pm.db < storage/migrations/*.sql",
+    "lint": "eslint . --ext .ts",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "test:e2e": "vitest run --config tests/e2e/config/e2e.config.ts",
+    "test:e2e:watch": "vitest --config tests/e2e/config/e2e.config.ts",
+    "test:e2e:github": "vitest run --config tests/e2e/config/e2e.config.ts tests/e2e/github/",
+    "test:e2e:git": "vitest run --config tests/e2e/config/e2e.config.ts tests/e2e/git/",
+    "test:e2e:mcp": "vitest run --config tests/e2e/config/e2e.config.ts tests/e2e/mcp/",
+    "test:e2e:cleanup": "tsx tests/e2e/helpers/cleanup.ts --force"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "better-sqlite3": "^11.0.0"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.8",
+    "@types/node": "^20.10.0",
+    "@vitest/coverage-v8": "^4.0.17",
+    "tsx": "^4.7.0",
+    "typescript": "^5.3.0",
+    "vitest": "^4.0.17"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "files": [
+    "dist",
+    "storage/schema.sql"
+  ],
+  "keywords": [
+    "claude-code",
+    "mcp",
+    "project-management",
+    "plugin"
+  ],
+  "author": "young1ll",
+  "license": "MIT"
+}
