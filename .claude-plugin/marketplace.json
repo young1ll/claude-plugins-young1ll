@@ -8,8 +8,7 @@
   "plugins": [
     {
       "name": "pm",
-      "description": "Project documentation management and workflow orchestration. PROJECT.yaml-based systematic document management, milestone tracking, and automated validation.",
-      "version": "1.0.0",
+      "description": "Project documentation management and workflow orchestration",
       "author": {
         "name": "young1ll"
       },
