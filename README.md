@@ -10,11 +10,11 @@ Claude Code 플러그인 컬렉션.
 
 ## PM Plugin
 
-LEVEL_1 Git-First 아키텍처 기반 프로젝트 관리 플러그인.
+LEVEL_2 검증 완료, LEVEL_3 로드맵 기반 프로젝트 관리 플러그인.
 
 ### 핵심 기능
 
-- **MCP 통합**: 7 Resources, 21 Tools, 5 Prompts
+- **MCP 통합**: 7 Resources, 29 Tools, 5 Prompts
 - **하이브리드 에이전트**: Plan-and-Execute + ReAct + Reflexion (4개 에이전트)
 - **이벤트 소싱**: 완전한 감사 추적 및 시점별 상태 재구성
 - **Git 통합**: GitHub Flow 기반 브랜치 관리, Magic Words
@@ -69,7 +69,8 @@ young1ll-plugins/
 │       ├── hooks/           # 이벤트 훅 (7개)
 │       ├── lib/             # 유틸리티
 │       ├── storage/         # SQLite + 이벤트 소싱
-│       └── tests/           # 테스트 (~569개)
+│       ├── tests/           # 테스트 (526개)
+│       └── docs/            # 아키텍처 문서 (LEVEL 0-3)
 ├── .claude-plugin/          # 루트 플러그인 설정
 └── README.md
 ```
@@ -80,6 +81,27 @@ young1ll-plugins/
 # Claude Code에서
 /plugins add pm@done
 ```
+
+## 문서
+
+- [PM Plugin README](./plugins/pm/README.md) - 상세 가이드
+- [ARCHITECTURE](./plugins/pm/ARCHITECTURE.md) - 아키텍처 설계
+- [LEVEL_0](./plugins/pm/docs/LEVEL_0.md) - 기본 개념
+- [LEVEL_1](./plugins/pm/docs/LEVEL_1.md) - Git-First 구현
+- [LEVEL_2](./plugins/pm/docs/LEVEL_2.md) - 코드 검토 & 개선 ✅
+- [LEVEL_3](./plugins/pm/docs/LEVEL_3.md) - 로드맵 & 계획
+
+## 개발 상태
+
+**현재 버전**: v1.0.0 (LEVEL_2 완료)
+
+| 메트릭 | 상태 |
+|--------|------|
+| 테스트 | ✅ 526/526 passed |
+| 타입 체크 | ✅ 0 errors |
+| 보안 | ✅ 0 vulnerabilities |
+| 문서 | ✅ 2,097 lines |
+| 커버리지 | ✅ 81%+ |
 
 ## License
 
