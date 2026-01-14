@@ -8,7 +8,7 @@
   "plugins": [
     {
       "name": "pm",
-      "description": "Project documentation management and workflow orchestration",
+      "description": "AI-powered project management with MCP integration, event sourcing, and hybrid agent patterns",
       "author": {
         "name": "young1ll"
       },
