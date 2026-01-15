@@ -67,6 +67,17 @@ export class TaskService {
   }
 
   /**
+   * Get task by project and sequence number
+   */
+  async getBySeq(projectId: string, seq: number) {
+    const task = this.taskRepository.getBySeq(projectId, seq);
+    if (!task) {
+      throw new Error(`Task not found: #${seq}`);
+    }
+    return task;
+  }
+
+  /**
    * List tasks with filters
    */
   async list(dto: ListTasksDto) {
