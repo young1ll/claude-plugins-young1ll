@@ -1,12 +1,12 @@
 /**
- * PM Plugin Projection Repositories
+ * PM Plugin Projection Repositories (Simplified)
  *
- * CQRS Read Models for tasks, sprints, and projects.
- * Provides optimized queries for MCP tools.
+ * CQRS Read Models for tasks and projects.
+ * Focus: Local Task → GitHub Issue → GitHub Project workflow
  */
 
 import { DatabaseManager } from "./db.js";
-import { EventStore, taskReducer, createSprintEvent, createProjectEvent } from "../../storage/lib/events.js";
+import { EventStore, taskReducer, createProjectEvent } from "../../storage/lib/events.js";
 import { randomUUID } from "crypto";
 
 // ============================================
@@ -23,25 +23,10 @@ export interface Project {
   updated_at: string;
 }
 
-export interface Sprint {
-  id: string;
-  project_id: string;
-  name: string;
-  goal?: string;
-  start_date: string;
-  end_date: string;
-  status: string;
-  velocity_committed: number;
-  velocity_completed: number;
-  created_at: string;
-  updated_at: string;
-}
-
 export interface Task {
   id: string;
   seq?: number;                    // Project-scoped numeric ID (e.g., #42)
   project_id: string;
-  sprint_id?: string;
   parent_id?: string;
   title: string;
   description?: string;
@@ -58,6 +43,9 @@ export interface Task {
   branch_name?: string;
   linked_commits?: string;
   linked_prs?: string;
+  github_issue_number?: number;
+  github_issue_url?: string;
+  github_project_item_id?: string;
   created_at: string;
   updated_at: string;
   started_at?: string;
@@ -66,7 +54,6 @@ export interface Task {
 
 export interface TaskFilter {
   projectId?: string;
-  sprintId?: string;
   status?: string;
   assignee?: string;
   type?: string;
@@ -75,18 +62,19 @@ export interface TaskFilter {
   offset?: number;
 }
 
-export interface VelocityData {
-  sprint_id: string;
-  sprint_name: string;
-  committed_points: number;
-  completed_points: number;
-  completion_rate: number;
-}
-
-export interface BurndownPoint {
-  date: string;
-  remaining_points: number;
-  ideal_points: number;
+export interface ProjectConfig {
+  id: number;
+  project_id: string;
+  github_enabled: boolean;
+  github_repo?: string;
+  github_project_id?: string;
+  github_project_number?: number;
+  field_mappings?: string;
+  status_options?: string;
+  sync_mode: string;
+  last_sync_at?: string;
+  created_at: string;
+  updated_at: string;
 }
 
 // ============================================
@@ -98,215 +86,89 @@ export class ProjectRepository {
 
   create(name: string, description?: string, settings?: Record<string, unknown>): Project {
     const id = randomUUID();
-
-    // Create event
     createProjectEvent(this.eventStore, "ProjectCreated", id, {
       name,
       description,
       settings,
     });
+    return this.syncFromEvents(id)!;
+  }
 
-    // Update projection
+  syncFromEvents(projectId: string): Project | undefined {
+    const events = this.eventStore.getEvents("project", projectId);
+    if (events.length === 0) return undefined;
+
+    const state = events.reduce((acc, event) => {
+      return {
+        ...acc,
+        ...event.payload,
+        id: projectId,
+      };
+    }, {});
+
+    // Upsert to database
     this.db.execute(
-      `INSERT INTO projects (id, name, description, settings, status)
-       VALUES (?, ?, ?, ?, 'active')`,
-      [id, name, description || null, settings ? JSON.stringify(settings) : null]
-    );
-
-    return this.getById(id)!;
-  }
-
-  getById(id: string): Project | undefined {
-    return this.db.queryOne<Project>(
-      `SELECT * FROM projects WHERE id = ?`,
-      [id]
-    );
-  }
-
-  list(): Project[] {
-    return this.db.query<Project>(
-      `SELECT * FROM projects WHERE status = 'active' ORDER BY created_at DESC`
-    );
-  }
-
-  update(id: string, updates: Partial<Project>): Project | undefined {
-    const sets: string[] = [];
-    const values: unknown[] = [];
-
-    if (updates.name !== undefined) {
-      sets.push("name = ?");
-      values.push(updates.name);
-    }
-    if (updates.description !== undefined) {
-      sets.push("description = ?");
-      values.push(updates.description);
-    }
-    if (updates.settings !== undefined) {
-      sets.push("settings = ?");
-      values.push(JSON.stringify(updates.settings));
-    }
-    if (updates.status !== undefined) {
-      sets.push("status = ?");
-      values.push(updates.status);
-    }
-
-    if (sets.length === 0) return this.getById(id);
-
-    values.push(id);
-    this.db.execute(
-      `UPDATE projects SET ${sets.join(", ")} WHERE id = ?`,
-      values
-    );
-
-    return this.getById(id);
-  }
-}
-
-// ============================================
-// Sprint Repository
-// ============================================
-
-export class SprintRepository {
-  constructor(private db: DatabaseManager, private eventStore: EventStore) {}
-
-  create(
-    projectId: string,
-    name: string,
-    startDate: string,
-    endDate: string,
-    goal?: string
-  ): Sprint {
-    const id = randomUUID();
-
-    // Create event
-    createSprintEvent(this.eventStore, "SprintCreated", id, {
-      projectId,
-      name,
-      startDate,
-      endDate,
-      goal,
-    });
-
-    // Update projection
-    this.db.execute(
-      `INSERT INTO sprints (id, project_id, name, goal, start_date, end_date, status)
-       VALUES (?, ?, ?, ?, ?, ?, 'planning')`,
-      [id, projectId, name, goal || null, startDate, endDate]
-    );
-
-    return this.getById(id)!;
-  }
-
-  getById(id: string): Sprint | undefined {
-    return this.db.queryOne<Sprint>(
-      `SELECT * FROM sprints WHERE id = ?`,
-      [id]
-    );
-  }
-
-  getActive(projectId: string): Sprint | undefined {
-    return this.db.queryOne<Sprint>(
-      `SELECT * FROM sprints WHERE project_id = ? AND status = 'active'`,
-      [projectId]
-    );
-  }
-
-  list(projectId: string): Sprint[] {
-    return this.db.query<Sprint>(
-      `SELECT * FROM sprints WHERE project_id = ? ORDER BY start_date DESC`,
-      [projectId]
-    );
-  }
-
-  getStatus(sprintId: string): {
-    sprint: Sprint;
-    tasks: Task[];
-    totalPoints: number;
-    completedPoints: number;
-    progressPct: number;
-  } | undefined {
-    const sprint = this.getById(sprintId);
-    if (!sprint) return undefined;
-
-    const tasks = this.db.query<Task>(
-      `SELECT * FROM tasks WHERE sprint_id = ?`,
-      [sprintId]
-    );
-
-    const totalPoints = tasks.reduce((sum, t) => sum + (t.estimate_points || 0), 0);
-    const completedPoints = tasks
-      .filter(t => t.status === "done")
-      .reduce((sum, t) => sum + (t.estimate_points || 0), 0);
-    const progressPct = totalPoints > 0 ? Math.round((completedPoints / totalPoints) * 100) : 0;
-
-    return {
-      sprint,
-      tasks,
-      totalPoints,
-      completedPoints,
-      progressPct,
-    };
-  }
-
-  start(sprintId: string): Sprint | undefined {
-    createSprintEvent(this.eventStore, "SprintStarted", sprintId, {
-      startedAt: new Date().toISOString(),
-    });
-
-    this.db.execute(
-      `UPDATE sprints SET status = 'active' WHERE id = ?`,
-      [sprintId]
-    );
-
-    return this.getById(sprintId);
-  }
-
-  complete(sprintId: string): Sprint | undefined {
-    const status = this.getStatus(sprintId);
-    if (!status) return undefined;
-
-    createSprintEvent(this.eventStore, "SprintCompleted", sprintId, {
-      completedAt: new Date().toISOString(),
-      totalPoints: status.totalPoints,
-      completedPoints: status.completedPoints,
-    });
-
-    // Update sprint
-    this.db.execute(
-      `UPDATE sprints SET status = 'completed',
-       velocity_committed = ?, velocity_completed = ?
-       WHERE id = ?`,
-      [status.totalPoints, status.completedPoints, sprintId]
-    );
-
-    // Record velocity history
-    const sprint = this.getById(sprintId)!;
-    this.db.execute(
-      `INSERT INTO velocity_history
-       (project_id, sprint_id, committed_points, completed_points, completion_rate)
-       VALUES (?, ?, ?, ?, ?)`,
+      `INSERT INTO projects (id, name, description, status, settings)
+       VALUES (?, ?, ?, ?, ?)
+       ON CONFLICT(id) DO UPDATE SET
+         name = excluded.name,
+         description = excluded.description,
+         status = excluded.status,
+         settings = excluded.settings`,
       [
-        sprint.project_id,
-        sprintId,
-        status.totalPoints,
-        status.completedPoints,
-        status.totalPoints > 0 ? status.completedPoints / status.totalPoints : 0,
+        projectId,
+        state.name,
+        state.description || null,
+        state.status || "active",
+        state.settings ? JSON.stringify(state.settings) : null,
       ]
     );
 
-    return this.getById(sprintId);
+    return this.getById(projectId);
   }
 
-  addTasks(sprintId: string, taskIds: string[]): void {
-    const stmt = this.db.getDb().prepare(
-      `UPDATE tasks SET sprint_id = ? WHERE id = ?`
-    );
+  getById(id: string): Project | undefined {
+    return this.db.get<Project>("SELECT * FROM projects WHERE id = ?", [id]);
+  }
 
-    this.db.transaction(() => {
-      for (const taskId of taskIds) {
-        stmt.run(sprintId, taskId);
-      }
-    });
+  getByName(name: string): Project | undefined {
+    return this.db.get<Project>("SELECT * FROM projects WHERE name = ?", [name]);
+  }
+
+  list(): Project[] {
+    return this.db.all<Project>("SELECT * FROM projects ORDER BY created_at DESC", []);
+  }
+
+  update(id: string, updates: Partial<Project>): Project | undefined {
+    const project = this.getById(id);
+    if (!project) return undefined;
+
+    const fields: string[] = [];
+    const values: unknown[] = [];
+
+    if (updates.name !== undefined) {
+      fields.push("name = ?");
+      values.push(updates.name);
+    }
+    if (updates.description !== undefined) {
+      fields.push("description = ?");
+      values.push(updates.description);
+    }
+    if (updates.status !== undefined) {
+      fields.push("status = ?");
+      values.push(updates.status);
+    }
+    if (updates.settings !== undefined) {
+      fields.push("settings = ?");
+      values.push(JSON.stringify(updates.settings));
+    }
+
+    if (fields.length === 0) return project;
+
+    values.push(id);
+    this.db.execute(`UPDATE projects SET ${fields.join(", ")} WHERE id = ?`, values);
+
+    return this.getById(id);
   }
 }
 
@@ -317,85 +179,87 @@ export class SprintRepository {
 export class TaskRepository {
   constructor(private db: DatabaseManager, private eventStore: EventStore) {}
 
-  /**
-   * Get the next sequence number for a project
-   */
-  private getNextSeq(projectId: string): number {
-    const result = this.db.queryOne<{ max_seq: number | null }>(
-      `SELECT MAX(seq) as max_seq FROM tasks WHERE project_id = ?`,
-      [projectId]
-    );
-    return (result?.max_seq || 0) + 1;
-  }
-
-  /**
-   * Get task by seq number within a project
-   */
-  getBySeq(projectId: string, seq: number): Task | undefined {
-    return this.db.queryOne<Task>(
-      `SELECT * FROM tasks WHERE project_id = ? AND seq = ?`,
-      [projectId, seq]
-    );
-  }
-
-  /**
-   * Find task by ID or seq number (hybrid lookup)
-   * Supports: UUID, seq number, or #seq format
-   */
-  findTask(projectId: string, idOrSeq: string): Task | undefined {
-    // Check if it's a #seq format
-    const seqMatch = idOrSeq.match(/^#?(\d+)$/);
-    if (seqMatch) {
-      return this.getBySeq(projectId, parseInt(seqMatch[1], 10));
-    }
-    // Otherwise treat as UUID
-    return this.getById(idOrSeq);
-  }
-
-  /**
-   * Sync task projection from event store
-   */
   syncFromEvents(taskId: string): Task | undefined {
-    const projection = this.eventStore.replay("task", taskId, taskReducer);
-    if (!projection) return undefined;
+    const events = this.eventStore.getEvents("task", taskId);
+    if (events.length === 0) return undefined;
 
-    // Check if task already exists (for seq assignment)
-    const existing = this.getById(taskId);
-    const seq = existing?.seq ?? this.getNextSeq(projection.projectId);
+    const state = events.reduce(taskReducer, {
+      id: taskId,
+      project_id: "",
+      title: "",
+      status: "todo",
+      priority: "medium",
+      type: "task",
+    });
 
-    // Upsert projection
+    // Get next seq for project if not set
+    if (!state.seq) {
+      const maxSeq = this.db.get<{ max_seq: number | null }>(
+        "SELECT MAX(seq) as max_seq FROM tasks WHERE project_id = ?",
+        [state.project_id]
+      );
+      state.seq = (maxSeq?.max_seq || 0) + 1;
+    }
+
+    // Upsert to database
     this.db.execute(
-      `INSERT OR REPLACE INTO tasks
-       (id, seq, project_id, sprint_id, parent_id, title, description, status, priority, type,
-        estimate_points, estimate_hours, actual_hours, assignee, labels, due_date,
-        blocked_by, branch_name, linked_commits, linked_prs, created_at, updated_at,
-        started_at, completed_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO tasks (
+        id, seq, project_id, parent_id, title, description,
+        status, priority, type, estimate_points, estimate_hours, actual_hours,
+        assignee, labels, due_date, blocked_by,
+        branch_name, linked_commits, linked_prs,
+        github_issue_number, github_issue_url, github_project_item_id,
+        started_at, completed_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET
+        seq = excluded.seq,
+        project_id = excluded.project_id,
+        parent_id = excluded.parent_id,
+        title = excluded.title,
+        description = excluded.description,
+        status = excluded.status,
+        priority = excluded.priority,
+        type = excluded.type,
+        estimate_points = excluded.estimate_points,
+        estimate_hours = excluded.estimate_hours,
+        actual_hours = excluded.actual_hours,
+        assignee = excluded.assignee,
+        labels = excluded.labels,
+        due_date = excluded.due_date,
+        blocked_by = excluded.blocked_by,
+        branch_name = excluded.branch_name,
+        linked_commits = excluded.linked_commits,
+        linked_prs = excluded.linked_prs,
+        github_issue_number = excluded.github_issue_number,
+        github_issue_url = excluded.github_issue_url,
+        github_project_item_id = excluded.github_project_item_id,
+        started_at = excluded.started_at,
+        completed_at = excluded.completed_at`,
       [
-        projection.id,
-        seq,
-        projection.projectId,
-        projection.sprintId || null,
-        projection.parentId || null,
-        projection.title,
-        projection.description || null,
-        projection.status,
-        projection.priority,
-        projection.type,
-        projection.estimatePoints || null,
-        projection.estimateHours || null,
-        projection.actualHours || null,
-        projection.assignee || null,
-        projection.labels ? JSON.stringify(projection.labels) : null,
-        projection.dueDate || null,
-        projection.blockedBy || null,
-        projection.branchName || null,
-        projection.linkedCommits ? JSON.stringify(projection.linkedCommits) : null,
-        projection.linkedPRs ? JSON.stringify(projection.linkedPRs) : null,
-        projection.createdAt,
-        projection.updatedAt,
-        projection.startedAt || null,
-        projection.completedAt || null,
+        taskId,
+        state.seq,
+        state.project_id,
+        state.parent_id || null,
+        state.title,
+        state.description || null,
+        state.status,
+        state.priority,
+        state.type,
+        state.estimate_points || null,
+        state.estimate_hours || null,
+        state.actual_hours || null,
+        state.assignee || null,
+        state.labels || null,
+        state.due_date || null,
+        state.blocked_by || null,
+        state.branch_name || null,
+        state.linked_commits || null,
+        state.linked_prs || null,
+        state.github_issue_number || null,
+        state.github_issue_url || null,
+        state.github_project_item_id || null,
+        state.started_at || null,
+        state.completed_at || null,
       ]
     );
 
@@ -403,218 +267,106 @@ export class TaskRepository {
   }
 
   getById(id: string): Task | undefined {
-    return this.db.queryOne<Task>(
-      `SELECT * FROM tasks WHERE id = ?`,
-      [id]
+    return this.db.get<Task>("SELECT * FROM tasks WHERE id = ?", [id]);
+  }
+
+  getBySeq(projectId: string, seq: number): Task | undefined {
+    return this.db.get<Task>(
+      "SELECT * FROM tasks WHERE project_id = ? AND seq = ?",
+      [projectId, seq]
     );
   }
 
   list(filter: TaskFilter = {}): Task[] {
     const conditions: string[] = [];
-    const values: unknown[] = [];
+    const params: unknown[] = [];
 
     if (filter.projectId) {
       conditions.push("project_id = ?");
-      values.push(filter.projectId);
-    }
-    if (filter.sprintId) {
-      conditions.push("sprint_id = ?");
-      values.push(filter.sprintId);
+      params.push(filter.projectId);
     }
     if (filter.status) {
       conditions.push("status = ?");
-      values.push(filter.status);
+      params.push(filter.status);
     }
     if (filter.assignee) {
       conditions.push("assignee = ?");
-      values.push(filter.assignee);
+      params.push(filter.assignee);
     }
     if (filter.type) {
       conditions.push("type = ?");
-      values.push(filter.type);
+      params.push(filter.type);
     }
     if (filter.priority) {
       conditions.push("priority = ?");
-      values.push(filter.priority);
+      params.push(filter.priority);
     }
 
-    const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
-    const limit = filter.limit || 50;
-    const offset = filter.offset || 0;
+    let query = "SELECT * FROM tasks";
+    if (conditions.length > 0) {
+      query += ` WHERE ${conditions.join(" AND ")}`;
+    }
+    query += " ORDER BY created_at DESC";
 
-    return this.db.query<Task>(
-      `SELECT * FROM tasks ${whereClause}
-       ORDER BY
-         CASE priority WHEN 'critical' THEN 1 WHEN 'high' THEN 2 WHEN 'medium' THEN 3 WHEN 'low' THEN 4 END,
-         created_at DESC
-       LIMIT ? OFFSET ?`,
-      [...values, limit, offset]
-    );
+    if (filter.limit) {
+      query += ` LIMIT ${filter.limit}`;
+      if (filter.offset) {
+        query += ` OFFSET ${filter.offset}`;
+      }
+    }
+
+    return this.db.all<Task>(query, params);
   }
 
-  update(taskId: string, updates: Partial<Task>): Task | undefined {
-    const sets: string[] = [];
+  update(id: string, updates: Partial<Task>): Task | undefined {
+    const task = this.getById(id);
+    if (!task) return undefined;
+
+    const fields: string[] = [];
     const values: unknown[] = [];
 
-    const fieldMap: Record<string, string> = {
-      title: "title",
-      description: "description",
-      status: "status",
-      priority: "priority",
-      type: "type",
-      estimate_points: "estimate_points",
-      estimate_hours: "estimate_hours",
-      actual_hours: "actual_hours",
-      assignee: "assignee",
-      due_date: "due_date",
-      sprint_id: "sprint_id",
-    };
+    // Only allow specific fields to be updated directly
+    const allowedFields = [
+      "title",
+      "description",
+      "status",
+      "priority",
+      "type",
+      "estimate_points",
+      "estimate_hours",
+      "actual_hours",
+      "assignee",
+      "labels",
+      "due_date",
+      "blocked_by",
+      "branch_name",
+      "linked_commits",
+      "linked_prs",
+      "github_issue_number",
+      "github_issue_url",
+      "github_project_item_id",
+      "started_at",
+      "completed_at",
+    ];
 
-    for (const [key, column] of Object.entries(fieldMap)) {
-      if ((updates as any)[key] !== undefined) {
-        sets.push(`${column} = ?`);
-        values.push((updates as any)[key]);
+    for (const key of allowedFields) {
+      if (updates[key] !== undefined) {
+        fields.push(`${key} = ?`);
+        values.push(updates[key]);
       }
     }
 
-    if (sets.length === 0) return this.getById(taskId);
+    if (fields.length === 0) return task;
 
-    values.push(taskId);
-    this.db.execute(
-      `UPDATE tasks SET ${sets.join(", ")} WHERE id = ?`,
-      values
-    );
+    values.push(id);
+    this.db.execute(`UPDATE tasks SET ${fields.join(", ")} WHERE id = ?`, values);
 
-    return this.getById(taskId);
+    return this.getById(id);
   }
 
-  /**
-   * Get tasks by status for board view
-   */
-  getByStatus(projectId: string, sprintId?: string): Record<string, Task[]> {
-    const filter: TaskFilter = { projectId };
-    if (sprintId) filter.sprintId = sprintId;
-
-    const tasks = this.list(filter);
-    const grouped: Record<string, Task[]> = {
-      todo: [],
-      in_progress: [],
-      in_review: [],
-      done: [],
-      blocked: [],
-    };
-
-    for (const task of tasks) {
-      if (grouped[task.status]) {
-        grouped[task.status].push(task);
-      }
-    }
-
-    return grouped;
-  }
-}
-
-// ============================================
-// Analytics Repository
-// ============================================
-
-export class AnalyticsRepository {
-  constructor(private db: DatabaseManager) {}
-
-  /**
-   * Calculate velocity for a project
-   */
-  calculateVelocity(projectId: string, sprintCount = 3): {
-    average: number;
-    trend: VelocityData[];
-    stdDev: number;
-  } {
-    const history = this.db.query<VelocityData>(
-      `SELECT vh.sprint_id, s.name as sprint_name,
-              vh.committed_points, vh.completed_points, vh.completion_rate
-       FROM velocity_history vh
-       JOIN sprints s ON vh.sprint_id = s.id
-       WHERE vh.project_id = ?
-       ORDER BY vh.recorded_at DESC
-       LIMIT ?`,
-      [projectId, sprintCount]
-    );
-
-    if (history.length === 0) {
-      return { average: 0, trend: [], stdDev: 0 };
-    }
-
-    const completedPoints = history.map(h => h.completed_points);
-    const average = completedPoints.reduce((a, b) => a + b, 0) / completedPoints.length;
-
-    const variance = completedPoints.reduce((sum, val) => {
-      return sum + Math.pow(val - average, 2);
-    }, 0) / completedPoints.length;
-    const stdDev = Math.sqrt(variance);
-
-    return {
-      average: Math.round(average * 10) / 10,
-      trend: history,
-      stdDev: Math.round(stdDev * 10) / 10,
-    };
-  }
-
-  /**
-   * Get burndown data for a sprint
-   */
-  getBurndownData(sprintId: string): BurndownPoint[] {
-    const sprint = this.db.queryOne<Sprint>(
-      `SELECT * FROM sprints WHERE id = ?`,
-      [sprintId]
-    );
-    if (!sprint) return [];
-
-    const tasks = this.db.query<Task>(
-      `SELECT * FROM tasks WHERE sprint_id = ?`,
-      [sprintId]
-    );
-
-    const totalPoints = tasks.reduce((sum, t) => sum + (t.estimate_points || 0), 0);
-
-    // Get completion events
-    const completionEvents = this.db.query<{ completed_at: string; estimate_points: number }>(
-      `SELECT completed_at, estimate_points FROM tasks
-       WHERE sprint_id = ? AND status = 'done' AND completed_at IS NOT NULL
-       ORDER BY completed_at`,
-      [sprintId]
-    );
-
-    // Build burndown
-    const startDate = new Date(sprint.start_date);
-    const endDate = new Date(sprint.end_date);
-    const totalDays = Math.ceil((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24));
-
-    const burndown: BurndownPoint[] = [];
-    let remaining = totalPoints;
-    let eventIndex = 0;
-
-    for (let day = 0; day <= totalDays; day++) {
-      const currentDate = new Date(startDate);
-      currentDate.setDate(currentDate.getDate() + day);
-      const dateStr = currentDate.toISOString().split("T")[0];
-
-      // Process completions for this day
-      while (
-        eventIndex < completionEvents.length &&
-        completionEvents[eventIndex].completed_at.startsWith(dateStr)
-      ) {
-        remaining -= completionEvents[eventIndex].estimate_points || 0;
-        eventIndex++;
-      }
-
-      burndown.push({
-        date: dateStr,
-        remaining_points: Math.max(0, remaining),
-        ideal_points: Math.round(totalPoints * (1 - day / totalDays)),
-      });
-    }
-
-    return burndown;
+  delete(id: string): boolean {
+    const result = this.db.execute("DELETE FROM tasks WHERE id = ?", [id]);
+    return result.changes > 0;
   }
 }
 
@@ -622,226 +374,85 @@ export class AnalyticsRepository {
 // Project Config Repository
 // ============================================
 
-export interface ProjectConfig {
-  id: number;
-  project_id: string;
-  github_enabled: boolean;
-  github_project_id?: string;
-  github_project_number?: number;
-  field_mappings?: string;
-  status_options?: string;
-  sync_mode: string;
-  last_sync_at?: string;
-  last_sync_cursor?: string;
-  created_at: string;
-  updated_at: string;
-}
-
 export class ProjectConfigRepository {
   constructor(private db: DatabaseManager) {}
 
+  create(projectId: string, config: Partial<ProjectConfig>): ProjectConfig {
+    this.db.execute(
+      `INSERT INTO project_config (
+        project_id, github_enabled, github_repo, github_project_id,
+        github_project_number, field_mappings, status_options, sync_mode
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        projectId,
+        config.github_enabled ? 1 : 0,
+        config.github_repo || null,
+        config.github_project_id || null,
+        config.github_project_number || null,
+        config.field_mappings || null,
+        config.status_options || null,
+        config.sync_mode || "manual",
+      ]
+    );
+
+    return this.getByProjectId(projectId)!;
+  }
+
   getByProjectId(projectId: string): ProjectConfig | undefined {
-    return this.db.queryOne<ProjectConfig>(
-      `SELECT * FROM project_config WHERE project_id = ?`,
+    return this.db.get<ProjectConfig>(
+      "SELECT * FROM project_config WHERE project_id = ?",
       [projectId]
     );
   }
 
-  isGitHubEnabled(projectId: string): boolean {
-    const config = this.getByProjectId(projectId);
-    return config?.github_enabled === true;
-  }
-
-  create(projectId: string, config: Partial<ProjectConfig> = {}): ProjectConfig | undefined {
-    this.db.execute(
-      `INSERT INTO project_config (project_id, github_enabled, sync_mode)
-       VALUES (?, ?, ?)
-       ON CONFLICT(project_id) DO UPDATE SET
-         github_enabled = excluded.github_enabled,
-         sync_mode = excluded.sync_mode`,
-      [projectId, config.github_enabled ? 1 : 0, config.sync_mode || "read_only"]
-    );
-    return this.getByProjectId(projectId);
-  }
-
   update(projectId: string, updates: Partial<ProjectConfig>): ProjectConfig | undefined {
-    const sets: string[] = [];
+    const config = this.getByProjectId(projectId);
+    if (!config) return undefined;
+
+    const fields: string[] = [];
     const values: unknown[] = [];
 
     if (updates.github_enabled !== undefined) {
-      sets.push("github_enabled = ?");
+      fields.push("github_enabled = ?");
       values.push(updates.github_enabled ? 1 : 0);
     }
+    if (updates.github_repo !== undefined) {
+      fields.push("github_repo = ?");
+      values.push(updates.github_repo);
+    }
     if (updates.github_project_id !== undefined) {
-      sets.push("github_project_id = ?");
+      fields.push("github_project_id = ?");
       values.push(updates.github_project_id);
     }
     if (updates.github_project_number !== undefined) {
-      sets.push("github_project_number = ?");
+      fields.push("github_project_number = ?");
       values.push(updates.github_project_number);
     }
+    if (updates.field_mappings !== undefined) {
+      fields.push("field_mappings = ?");
+      values.push(updates.field_mappings);
+    }
+    if (updates.status_options !== undefined) {
+      fields.push("status_options = ?");
+      values.push(updates.status_options);
+    }
     if (updates.sync_mode !== undefined) {
-      sets.push("sync_mode = ?");
+      fields.push("sync_mode = ?");
       values.push(updates.sync_mode);
     }
     if (updates.last_sync_at !== undefined) {
-      sets.push("last_sync_at = ?");
+      fields.push("last_sync_at = ?");
       values.push(updates.last_sync_at);
     }
 
-    if (sets.length === 0) return this.getByProjectId(projectId);
+    if (fields.length === 0) return config;
 
     values.push(projectId);
     this.db.execute(
-      `UPDATE project_config SET ${sets.join(", ")} WHERE project_id = ?`,
+      `UPDATE project_config SET ${fields.join(", ")} WHERE project_id = ?`,
       values
     );
 
     return this.getByProjectId(projectId);
-  }
-
-  enableGitHub(projectId: string): ProjectConfig | undefined {
-    // Create config if not exists
-    const existing = this.getByProjectId(projectId);
-    if (!existing) {
-      return this.create(projectId, { github_enabled: true });
-    }
-    return this.update(projectId, { github_enabled: true });
-  }
-
-  disableGitHub(projectId: string): ProjectConfig | undefined {
-    return this.update(projectId, { github_enabled: false });
-  }
-}
-
-// ============================================
-// Sync Queue Repository
-// ============================================
-
-export interface SyncQueueItem {
-  id: number;
-  action: string;          // create_issue, update_status, sync_task, etc.
-  entity_type: string;     // task, sprint, project
-  entity_id: string;
-  payload: string;         // JSON payload
-  status: "pending" | "processing" | "completed" | "failed";
-  retry_count: number;
-  error_message?: string;
-  created_at: string;
-  processed_at?: string;
-}
-
-export class SyncQueueRepository {
-  constructor(private db: DatabaseManager) {}
-
-  /**
-   * Add item to sync queue
-   */
-  enqueue(
-    action: string,
-    entityType: string,
-    entityId: string,
-    payload: Record<string, unknown>
-  ): SyncQueueItem | undefined {
-    this.db.execute(
-      `INSERT INTO sync_queue (action, entity_type, entity_id, payload, status)
-       VALUES (?, ?, ?, ?, 'pending')`,
-      [action, entityType, entityId, JSON.stringify(payload)]
-    );
-    return this.db.queryOne<SyncQueueItem>(
-      `SELECT * FROM sync_queue WHERE entity_type = ? AND entity_id = ? ORDER BY id DESC LIMIT 1`,
-      [entityType, entityId]
-    );
-  }
-
-  /**
-   * Get pending items (for processing)
-   */
-  getPending(limit = 10): SyncQueueItem[] {
-    return this.db.query<SyncQueueItem>(
-      `SELECT * FROM sync_queue WHERE status = 'pending' ORDER BY created_at ASC LIMIT ?`,
-      [limit]
-    );
-  }
-
-  /**
-   * Get all items for an entity
-   */
-  getByEntity(entityType: string, entityId: string): SyncQueueItem[] {
-    return this.db.query<SyncQueueItem>(
-      `SELECT * FROM sync_queue WHERE entity_type = ? AND entity_id = ? ORDER BY created_at DESC`,
-      [entityType, entityId]
-    );
-  }
-
-  /**
-   * Mark item as processing
-   */
-  markProcessing(id: number): void {
-    this.db.execute(
-      `UPDATE sync_queue SET status = 'processing' WHERE id = ?`,
-      [id]
-    );
-  }
-
-  /**
-   * Mark item as completed
-   */
-  markCompleted(id: number): void {
-    this.db.execute(
-      `UPDATE sync_queue SET status = 'completed', processed_at = datetime('now') WHERE id = ?`,
-      [id]
-    );
-  }
-
-  /**
-   * Mark item as failed
-   */
-  markFailed(id: number, errorMessage: string): void {
-    this.db.execute(
-      `UPDATE sync_queue SET status = 'failed', retry_count = retry_count + 1, error_message = ? WHERE id = ?`,
-      [errorMessage, id]
-    );
-  }
-
-  /**
-   * Retry failed item (reset to pending)
-   */
-  retry(id: number): void {
-    this.db.execute(
-      `UPDATE sync_queue SET status = 'pending', error_message = NULL WHERE id = ? AND status = 'failed'`,
-      [id]
-    );
-  }
-
-  /**
-   * Get queue statistics
-   */
-  getStats(): { pending: number; processing: number; completed: number; failed: number } {
-    const result = this.db.queryOne<{
-      pending: number;
-      processing: number;
-      completed: number;
-      failed: number;
-    }>(
-      `SELECT
-         SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) as pending,
-         SUM(CASE WHEN status = 'processing' THEN 1 ELSE 0 END) as processing,
-         SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as completed,
-         SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) as failed
-       FROM sync_queue`
-    );
-    return result || { pending: 0, processing: 0, completed: 0, failed: 0 };
-  }
-
-  /**
-   * Clear completed items older than specified days
-   */
-  clearOld(daysOld = 7): number {
-    const result = this.db.execute(
-      `DELETE FROM sync_queue WHERE status = 'completed' AND processed_at < datetime('now', '-' || ? || ' days')`,
-      [daysOld]
-    );
-    return result.changes;
   }
 }
