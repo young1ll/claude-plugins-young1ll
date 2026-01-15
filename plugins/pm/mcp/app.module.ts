@@ -6,6 +6,7 @@ import { ProjectModule } from './modules/project/project.module.js';
 import { SprintModule } from './modules/sprint/sprint.module.js';
 import { GitModule } from './modules/git/git.module.js';
 import { GitHubModule } from './modules/github/github.module.js';
+import { SyncModule } from './modules/sync/sync.module.js';
 
 /**
  * Root application module
@@ -25,9 +26,7 @@ import { GitHubModule } from './modules/github/github.module.js';
     SprintModule,
     GitModule,
     GitHubModule,
-
-    // To be added:
-    // SyncModule,
+    SyncModule,
   ],
 })
 export class AppModule {}
