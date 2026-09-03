@@ -1,0 +1,13 @@
+{
+  "name": "parallel-session-workflow",
+  "description": "Run several Claude Code sessions on one git repository without them colliding — worktree isolation, cross-session messaging, shared-file rules, and recovery commands.",
+  "version": "1.0.0",
+  "author": {
+    "name": "young1ll",
+    "url": "https://github.com/young1ll"
+  },
+  "homepage": "https://github.com/young1ll/done/tree/main/plugins/parallel-session-workflow",
+  "repository": "https://github.com/young1ll/done",
+  "license": "MIT",
+  "keywords": ["worktree", "parallel", "multi-agent", "git", "workflow"]
+}
