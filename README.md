@@ -28,6 +28,8 @@ another's commit, a shared staging area swallows files, `git stash pop` restores
 It covers:
 
 - **Detecting parallel mode** — when to treat the environment as shared, and when to re-check.
+  Also why neither session roster settles it: both filter what they list, so a short list is not
+  an empty machine.
 - **Two operating modes** — isolated worktree per session, or one shared checkout on one branch. Both
   are legitimate; each has its own safety rules, and the choice has to be explicit.
 - **Worktree isolation** — entering one, picking the right base, and what a fresh worktree is missing.

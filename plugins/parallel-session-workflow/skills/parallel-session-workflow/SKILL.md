@@ -1,6 +1,6 @@
 ---
 name: parallel-session-workflow
-description: Parallel agent session workflow — detect parallel mode from git state alone (worktrees, HEAD drift, index.lock) or via ListAgents, choose an operating mode (isolated worktree or shared checkout), claim file scope, message sibling sessions, and recover from worktree, staging-area, or rebase problems. Use when multiple sessions work on the same git project, when starting or finishing work in an isolated worktree, when several sessions share one checkout, or when recovering from a worktree/index/rebase problem.
+description: Parallel agent session workflow — detect parallel mode from git state alone (worktrees, HEAD drift, index.lock) rather than from a session roster, choose an operating mode (isolated worktree or shared checkout), claim file scope, message sibling sessions, and recover from worktree, staging-area, or rebase problems. Use when multiple sessions work on the same git project, when starting or finishing work in an isolated worktree, when several sessions share one checkout, or when recovering from a worktree/index/rebase problem.
 ---
 
 # Parallel Session Workflow
@@ -63,14 +63,22 @@ Any one of these is parallel mode, whatever the session list says:
 - a commit timestamped inside your session that you did not make
 - tracked modifications you did not make
 
-### Session probe — ListAgents
+### Session probe — the rosters
 
 The **ListAgents tool** (not shell) names the live sessions you can message. It is the only thing
 that gives you an *address*.
 
 It does **not** report each session's working directory, so it cannot tell you which peers are on
-this repository. A long peer list is not proof of parallel mode and a short one is not proof of its
-absence. Cross the two: git says whether you are sharing, ListAgents says with whom.
+this repository. The user has a surface that does — the agents view, `←` on an empty prompt, groups
+by directory in one keystroke. When the repo probe is positive and the names matter, ask them to
+read it rather than inferring repository membership from a list that carries none.
+
+Neither roster is a boundary, and the failure is asymmetric. A long peer list is not proof of
+parallel mode; a **short one is not proof of its absence**. Both surfaces filter — the agents view
+drops peers that have been idle for more than 24 hours, among other conditions — and a session that
+went quiet yesterday can still be sitting on an uncommitted edit in this working tree. Cross the
+two: git says whether you are sharing, the roster says with whom.
+Mechanics and the full filter: `references/session-visibility.md`.
 
 - repo probe positive + sessions identified → parallel mode; coordinate by name
 - repo probe positive + nobody addressable (another agent, or a human in another terminal) → still
@@ -103,6 +111,10 @@ below assumes a reply. Read the kind on each row before you depend on one.
 - **`notify_when_idle` is local and main-conversation-only.** It does not reach cloud or Remote
   Control rows, and a subagent cannot subscribe.
 - **Idle is not frozen** for any kind. It reports a finished turn, not a committed tree.
+- **A row in the agents view is not a channel.** That view merges local jobs, adopted peers and
+  remote sessions into one roster, each with its own filters, and lets you attach to some kinds and
+  not others. Presence there says nothing about whether a `FREEZE?` can be answered — decide that
+  from the table above, not from the row.
 
 Filter the roster before you send. An unanswerable `FREEZE?` is indistinguishable from a session
 ignoring you, and that difference decides whether you wait or proceed.

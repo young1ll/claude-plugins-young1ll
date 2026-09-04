@@ -110,6 +110,12 @@ The user asks one session to publish work that several sessions produced. That s
 **integrator**. The others are still live, and a session that looks idle in ListAgents may still be
 holding an uncommitted edit — so the integrator has to ask, not assume.
 
+Nor is a short roster an answer. Both session surfaces filter what they list — the agents view drops
+peers idle for more than 24 hours, among other conditions — so a session absent from every list can
+still be holding a branch you are about to land on. Resolve "push everything" against the branches
+and their commit authorship, never against the roster's length. Filters and consequences:
+parallel-session-workflow → `references/session-visibility.md`.
+
 1. **Confirm the mandate.** The user names which sessions or branches. If they said "push everything",
    list what that resolves to and confirm before publishing anything.
 2. **Freeze.** Send `FREEZE?` to every owning session and collect a `FROZEN <branch> @ <sha>` from
