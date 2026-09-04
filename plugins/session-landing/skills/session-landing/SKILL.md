@@ -31,8 +31,14 @@ work is being done.
 Run all four. They are cheap and each one catches a different failure.
 
 ```bash
-# 1. who else is live right now (ListAgents tool, not shell) — a sibling may be mid-push
-# 2. refresh your view of the remote
+# 1. who else is live right now — a sibling may be mid-push.
+#    ListAgents (the tool, not shell) names them; it does NOT say who is on this repo.
+#    git answers that without any agent tooling:
+git worktree list                      # other checkouts sharing these refs
+ls .git/index.lock 2>/dev/null         # someone is mid-write
+git log -1 --format='%h %ad %an' --date=iso   # did HEAD move since you recorded it?
+# 2. refresh your view of the remote — NOTE: fetch mutates refs every worktree shares,
+#    and it advances a sibling's --force-with-lease baseline. See remote-conflicts.md.
 git fetch origin
 # 3. where am I relative to the remote?
 git rev-list --left-right --count @{u}...HEAD   # "<behind>  <ahead>"

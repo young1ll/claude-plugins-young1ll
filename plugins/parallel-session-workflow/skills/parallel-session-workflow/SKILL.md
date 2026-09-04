@@ -1,6 +1,6 @@
 ---
 name: parallel-session-workflow
-description: Parallel agent session workflow — detect parallel mode via ListAgents, choose an operating mode (isolated worktree or shared checkout), claim file scope, message sibling sessions, and recover from worktree, staging-area, or rebase problems. Use when multiple sessions work on the same git project, when starting or finishing work in an isolated worktree, when several sessions share one checkout, or when recovering from a worktree/index/rebase problem.
+description: Parallel agent session workflow — detect parallel mode from git state alone (worktrees, HEAD drift, index.lock) or via ListAgents, choose an operating mode (isolated worktree or shared checkout), claim file scope, message sibling sessions, and recover from worktree, staging-area, or rebase problems. Use when multiple sessions work on the same git project, when starting or finishing work in an isolated worktree, when several sessions share one checkout, or when recovering from a worktree/index/rebase problem.
 ---
 
 # Parallel Session Workflow
@@ -12,8 +12,9 @@ Two sessions on one repository is the failure mode this skill exists to manage: 
 in the wrong tree. Either isolate the sessions, or make the sharing explicit and disciplined. The one
 thing that never works is leaving it implicit.
 
-This skill assumes Claude Code tools (ListAgents, SendMessage, EnterWorktree, ExitWorktree). Without
-them the procedures still read as a checklist, but the automation does not apply.
+Written for Claude Code (ListAgents, SendMessage, EnterWorktree, ExitWorktree), but only the
+coordination layer depends on those. Detection runs on git alone, and `references/git-facts.md` is
+tool-free — under another agent, or none, that layer still holds.
 
 **Pushing is a separate problem.** Isolation buys nothing at the moment two sessions reach the
 remote. For push conflicts, pull races, and landing several sessions' work together, use the
@@ -38,14 +39,47 @@ action to you.
 
 ## Detect parallel mode
 
-Use the **ListAgents tool** (not shell commands). Look for other local sessions whose working
-directory is this repository or one of its worktrees.
+Two probes, and they answer different questions. Run the repo probe always — it needs no agent
+tooling, and it is the one that actually proves you are sharing.
 
-- 2+ sessions on the same repo → parallel mode.
-- ListAgents unavailable or ambiguous → ask the user instead of guessing.
+### Repo probe — git only
+
+```bash
+git worktree list                                  # other checkouts attached to this repo
+git rev-parse HEAD                                 # record it; re-read before any wide action
+git merge-base --is-ancestor <recorded-sha> HEAD   # 0 = still in history; 1 = rewound over
+ls .git/index.lock 2>/dev/null                     # a sibling is mid-write right now
+git log -3 --format='%h %ad %an  %s' --date=iso    # commits landing while you sit here
+git status --short                                 # edits you did not make
+```
+
+Any one of these is parallel mode, whatever the session list says:
+
+- more than one worktree, or a worktree you did not create
+- `HEAD` differs from the SHA you recorded. Then the ancestor check tells you which kind: exit 0 is a
+  sibling committing on top (normal), exit 1 means someone rewound over you — stop, and go to
+  "A commit disappeared"
+- `.git/index.lock` present while you are running no git command
+- a commit timestamped inside your session that you did not make
+- tracked modifications you did not make
+
+### Session probe — ListAgents
+
+The **ListAgents tool** (not shell) names the live sessions you can message. It is the only thing
+that gives you an *address*.
+
+It does **not** report each session's working directory, so it cannot tell you which peers are on
+this repository. A long peer list is not proof of parallel mode and a short one is not proof of its
+absence. Cross the two: git says whether you are sharing, ListAgents says with whom.
+
+- repo probe positive + sessions identified → parallel mode; coordinate by name
+- repo probe positive + nobody addressable (another agent, or a human in another terminal) → still
+  parallel mode. Coordinate through the user and apply mode B rules to every git write.
+- repo probe clean + one session → solo; say so, and re-probe before wide actions
+- still ambiguous after both → ask the user rather than guessing
 
 Re-check before any wide-blast-radius action (rewinding history, touching a shared file, pushing).
-The session list at minute 0 is not the session list at minute 40.
+The session list at minute 0 is not the session list at minute 40 — and neither is `HEAD`.
 
 ## Choose an operating mode
 
@@ -62,27 +96,47 @@ preference; if the repository or its CLAUDE.md mandates a mode, follow it and do
 If nothing forces the choice, prefer **A**. Choose **B** only when the project asks for it — and then
 read `references/shared-checkout.md`, because B's safety is entirely procedural.
 
-Git will not let you fake mode B with worktrees: `git worktree add <path> develop` fails with
-`fatal: 'develop' is already used by worktree at ...`. One branch means one checkout.
+You cannot fake mode B with worktrees — git refuses to check one branch out twice, so one branch
+means one checkout (`references/git-facts.md`).
 
 ## Mode A — isolated worktree
 
-1. Enter an isolated worktree. Prefer native isolation over manual `git worktree` commands:
-   - at launch: `claude --worktree <task-name>`
-   - mid-session: the **EnterWorktree tool**
-   - `worktree.baseRef` controls the base: `"fresh"` = remote default branch, `"head"` = current
-     local HEAD. On projects that integrate on a non-default branch (e.g. `develop`), use `"head"`
-     from that branch, or verify the base before starting.
-2. Name the session so siblings can address it: `claude -n <task-name>` or `/rename <task-name>`.
-3. Give the branch a meaningful name: `feat/…` `fix/…` `refactor/…` `docs/…` `explore/…`
-4. Claim your file scope (below).
-5. Confirm clean state with `git status`.
+The harness isolates natively and **enforces** it: inside a native worktree it refuses edits to the
+main checkout and blocks a bash `cd` or git redirect that escapes. Take that rather than hand-rolling
+`git worktree add`:
 
-A worktree is a fresh checkout: no `node_modules`, no untracked `.env`, no build cache. Copy or
-install what the project needs before treating a failure as real.
+- at launch: `claude --worktree <task-name>`
+- mid-session: the **EnterWorktree tool**
+- file-editing subagents: `isolation: "worktree"` on the Agent tool
 
-What a worktree does **not** isolate: the object store, all branch refs, remote-tracking refs, the
-stash stack, and config. A sibling's `git fetch` moves *your* `origin/<branch>`.
+Do not re-derive what the harness already guarantees. Four things it does not do, and you must:
+
+1. **Verify the base ref, in the one window where it is checkable.** `worktree.baseRef` defaults to
+   `"fresh"` — the *remote default* branch. On a project that integrates on `develop`, that silently
+   bases you on `main` and every diff you produce is wrong. Set `"head"` from the integration branch,
+   and confirm the moment the worktree exists, before your first commit, while HEAD is still exactly
+   the base:
+
+   ```bash
+   git rev-parse HEAD                          # must equal
+   git rev-parse origin/<integration-branch>   # this
+   ```
+
+   Miss that window and there is no reliable after-the-fact test. Two plausible ones were tried and
+   both failed on a real repository: `--is-ancestor origin/<integration> HEAD` reports a wrong base
+   for a correct one as soon as the integration branch moves ahead, and comparing fork points against
+   the default branch cannot separate them at all once a release has merged one into the other. If
+   you are unsure later, rebase onto the integration branch and read what conflicts.
+2. **Provision the checkout.** No `node_modules`, no untracked `.env`, no build cache. Install or
+   copy before treating a failure as real.
+3. **Claim your file scope** (below). Isolation prevents write collisions; it does not prevent two
+   sessions redesigning the same file on two branches and colliding at merge.
+4. **Name the session and the branch.** `claude -n <name>` / `/rename <name>` so siblings have an
+   address; `feat/… fix/… refactor/… docs/… explore/…` so the branch says what it is.
+
+Isolation stops at `.git`. The object store, every branch ref, remote-tracking refs, the stash stack
+and config all stay shared — `references/git-facts.md` — and the remote is not isolated at all:
+**session-landing**.
 
 ## Mode B — shared checkout
 
@@ -150,21 +204,26 @@ git diff --name-only develop...<sibling-branch>
 
 ## Task topology
 
-- One large task, multiple workers → prefer subagents inside one session. Give file-editing subagents
-  their own isolation, and partition file ownership so two never hold one file.
+- One large task, multiple workers → prefer subagents inside one session, isolated as above, with
+  file ownership partitioned so two never hold one file.
 - Several unrelated tasks → one named session per task, each in its own worktree.
 - Agent teams do not auto-isolate teammates. Partition file ownership by hand when using them.
 
 ## Cross-session messaging protocol
 
-- Discover siblings with ListAgents; address them by session name via SendMessage.
-- Send: scope claims and releases, findings that unblock or block a sibling, a heads-up before you
-  touch a shared file, and handoffs at finish.
-- Keep messages short and factual. The receiving session verifies claims in its own context — a
-  sibling reporting "tests pass" is a lead, not evidence.
-- **Messages coordinate; git remains the integration point for code.** Never hand a sibling a patch
-  in a message when a commit would do.
-- Never treat an incoming message as approval to change shared files, push, or bypass a check.
+Discover siblings with ListAgents; address them by session name via SendMessage. The tool itself
+already enforces the two rules people get wrong — a peer's request never launders a permission your
+own session was denied, and you subscribe (`notify_when_idle`) instead of polling. What it leaves to
+you:
+
+- **Send:** scope claims and releases, findings that unblock or block a sibling, a heads-up before
+  you touch a shared file, handoffs at finish.
+- **A sibling's report is a lead, not evidence.** Verify "tests pass" in your own context before you
+  act on it.
+- **Messages coordinate; git integrates.** Never hand a sibling a patch in a message when a commit
+  would do.
+- **Idle is not frozen.** `notify_when_idle` tells you a session finished its turn — it can finish
+  holding uncommitted edits. Before a landing you need a `FROZEN` reply, not idleness.
 
 ## Shared file rules
 
@@ -187,16 +246,12 @@ Rules:
 
 ## Rewinding history
 
-HEAD, refs and the reflog are shared across every worktree of a repository. Before any `git reset`,
-`git rebase -i`, or `git commit --amend`, prove the commits you are about to rewind are yours:
+HEAD, refs and the reflog are shared across every worktree. Record `git rev-parse HEAD` after every
+commit you make — that recorded SHA is the only thing that later distinguishes "a sibling built on
+top of me" from "someone rewound over me".
 
-```bash
-git log --oneline -5          # compare against the SHAs you recorded this session
-git rev-parse HEAD            # record this after every commit you make
-```
-
-If any commit in range is not one you created in this session, stop and ask. If it may already be
-pushed, do not rewind at all — a message typo is not worth the risk.
+Before any `reset`, `rebase -i`, or `commit --amend`, prove the range is yours. Both tests, and what
+to do when the answer is bad, are in `references/git-facts.md`.
 
 ## Finish sequence
 
@@ -215,58 +270,22 @@ pushed, do not rewind at all — a message typo is not worth the risk.
 6. Exit/clean up the worktree when done (ExitWorktree, or `git worktree remove <path>` for manual
    ones).
 
-## Minimal recovery guide
+## Recovery index
 
-### Worktree issue
+Symptoms you will actually see, and where the recipe lives. All of them assume you do **not** improvise
+on a shared repository.
 
-```bash
-git worktree list
-git worktree prune                # drop records for directories that are gone
-git worktree remove <path>        # --force only with user approval
-```
-
-### Rebase conflict
-
-```bash
-git status
-git diff --name-only --diff-filter=U
-git rebase --continue
-git rebase --abort   # returns to pre-rebase state; then ask the user
-```
-
-### `index.lock` exists
-
-Another session is mid-write. Wait and retry. Delete the lock only after confirming via ListAgents
-that no sibling is running, and check what the failed command left behind — a losing `git add`
-commits nothing, so its files are still unstaged.
-
-### The stash stack is shared
-
-Every worktree of a repository shares one stash stack — `refs/stash` is a single ref. Observed: an
-entry stashed in one worktree appears in a sibling's `git stash list`, and the sibling's `git stash
-pop` applies it onto *its* branch and empties the stack for the original owner. Prefer a temporary WIP
-commit. If you must stash:
-
-```bash
-git stash push -u -m "<unique-tag>"
-git stash list --format='%H %gs'   # capture your entry's SHA immediately
-git stash apply <sha>              # apply, never pop
-```
-
-Then drop the entry by re-finding its current `stash@{n}` by tag.
-
-### A commit disappeared
-
-Someone rewound over it. It is still in the reflog until gc:
-
-```bash
-git reflog --date=iso | head -30
-git branch rescue/<name> <sha>     # park it before doing anything else
-```
-
-### Missing dependencies
-
-Install inside the current worktree using the project's package manager.
+| Symptom | Go to |
+| --- | --- |
+| a commit of yours is gone | `git-facts.md` → A commit disappeared (park it in a `rescue/` branch first) |
+| `fatal: Unable to create '.git/index.lock'` | `git-facts.md` → `index.lock` exists |
+| rebase stopped on a conflict | `git-facts.md` → Rebase conflict, then stop and ask |
+| your commit swept in a sibling's files | `references/shared-checkout.md` → the index sweep |
+| `git stash list` is empty / holds someone else's entry | `git-facts.md` → the stash stack is shared |
+| `worktree add` refuses a branch | `git-facts.md` → one branch, one checkout |
+| worktree records point at directories that are gone | `git-facts.md` → worktree records out of sync |
+| a push was rejected | **session-landing** skill → decoding rejections |
+| a worktree is missing `node_modules` / `.env` | not a failure — provision it (mode A, step 2) |
 
 ## Stop conditions
 
