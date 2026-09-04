@@ -34,7 +34,9 @@ It covers:
   Also what a worktree does *not* isolate: refs, the stash, remote-tracking branches.
 - **Shared-checkout discipline** — the index is shared, so `git add <path>` does not scope your
   commit; `.git/index.lock` collisions silently drop staged files; HEAD rewinds hit everyone.
-- **Scope claims** — a message format for claiming and releasing file ownership.
+- **Scope claims and freezes** — a message format for claiming and releasing file ownership, and a
+  `FREEZE? / FROZEN / BUSY / RESUME` handshake for the moment one session is asked to publish
+  everyone's work.
 - **Cross-session messaging** — what to send, and why a sibling's message is never permission to
   bypass a check.
 - **Shared-file rules** — lockfiles, CI config, and migrations need an owner, not a conversation.
@@ -54,8 +56,12 @@ It covers:
 - **Why `--force-with-lease` is not a safeguard between sessions** — worktrees share `.git`, so a
   sibling's `git fetch` advances the very ref the lease is checked against, and the force goes
   through. Reproduced, with the transcript. `--force-if-includes` is the flag that actually holds.
+- **Landing on request** — what a session does when the user tells it to publish several sessions'
+  work: confirm the mandate, freeze the owners, land, then hand everyone their new base.
 - **Landing several sessions at once** — overlap prescan, landing order, an integrator loop that
   aborts cleanly on conflict, and `git push --atomic` so a multi-branch push cannot land halfway.
+- **Shared checkouts** — where one push publishes every session's commits, so the risk is premature
+  publication rather than loss, and `git push origin <sha>:<branch>` publishes only a prefix.
 - **Verification** — containment checks, and reporting by SHA rather than by hope.
 
 Commands in both plugins are written for zsh as well as bash, since that is the default shell on

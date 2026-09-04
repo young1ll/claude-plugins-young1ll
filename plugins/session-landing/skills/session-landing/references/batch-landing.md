@@ -70,8 +70,9 @@ done
 
 Best when the user reviews locally and wants linear history and a single CI run.
 
-Done by **one** session (the integrator), in its own checkout, with every other session having
-stopped writing and released its scope claim.
+Done by **one** session (the integrator), in its own checkout, holding a `FROZEN <branch> @ <sha>`
+from every owning session. Do not start the loop on a branch you have no `FROZEN` for — a session
+that is idle in ListAgents can still be holding an uncommitted edit.
 
 ```bash
 BASE=develop

@@ -98,11 +98,63 @@ remote-tracking tip you actually observed, which is the part a sibling's fetch c
 Never force the integration branch. If it needs rewriting, that is a user decision made with the
 whole team's state in view, not a session's.
 
+## Landing on request
+
+The user asks one session to publish work that several sessions produced. That session is the
+**integrator**. The others are still live, and a session that looks idle in ListAgents may still be
+holding an uncommitted edit — so the integrator has to ask, not assume.
+
+1. **Confirm the mandate.** The user names which sessions or branches. If they said "push everything",
+   list what that resolves to and confirm before publishing anything.
+2. **Freeze.** Send `FREEZE?` to every owning session and collect a `FROZEN <branch> @ <sha>` from
+   each (protocol in the parallel-session-workflow skill). A branch with no `FROZEN` does not get
+   landed — drop it from the batch and say so.
+3. **Land**, per the batch section below.
+4. **`RESUME`** to every session, with the landed SHA, so they rebase before their next commit.
+
+The integrator publishes other sessions' commits under its own push. That raises the bar, not lowers
+it: report exactly whose work went out, by branch and SHA.
+
+## Shared checkout (mode B): one push publishes everyone
+
+If the sessions share one checkout on one branch, there is nothing to collect — every session's
+commits are already stacked on that branch. "Landing everyone together" is not a pattern you choose;
+it is what a single `git push` does by default, and the batch patterns below do not apply.
+
+The risk inverts. Nothing gets lost — but a sibling's commit gets **published before they intended**:
+
+```bash
+git fetch origin
+git log --oneline @{u}..HEAD     # every one of these goes out on your push
+```
+
+- If every commit is yours, push normally.
+- If any commit is not yours, you are publishing someone else's work. Run the `FREEZE?` handshake, or
+  ask the user — "it is already on develop" is not the same as "it is ready to publish".
+- You **can** publish a prefix of the branch, without rewriting anything, by pushing a SHA instead of
+  the branch tip:
+
+  ```bash
+  git push origin <my-last-commit-sha>:develop
+  ```
+
+  Verified: the remote advances to that commit, the later commits stay local, and the eventual full
+  push is an ordinary fast-forward.
+
+  This works only if your last commit is an **ancestor** of the tip — i.e. your commits are a
+  contiguous prefix and the ones you are holding back sit above them. If a sibling's commit is below
+  yours, there is no prefix that excludes it: publishing yours publishes theirs. Then it is the
+  handshake or the user, not a git trick.
+
+- Never reorder or drop commits to make a subset fit. That rewrites history every sibling is standing
+  on.
+
 ## Landing several sessions at once
 
-The user asks for this when N sessions have each finished a piece. Full recipes — overlap prescan,
-integrator pattern, atomic multi-branch push, ordering rules, verification — are in
-`references/batch-landing.md`. The shape:
+Mode A only — N isolated sessions, one branch each, all finished. (In a shared checkout, see the
+section above: they are already on one branch.) Full recipes — overlap prescan, integrator pattern,
+atomic multi-branch push, ordering rules, verification — are in `references/batch-landing.md`.
+Everything below assumes you hold a `FROZEN` from each owning session. The shape:
 
 1. **Collect.** Nothing to download: sibling worktree branches are already local refs in the same
    repository. `git log --oneline <base>..<branch>` works immediately.
@@ -154,5 +206,7 @@ Stop and ask the user when:
 - the commits you are about to publish include a sibling's
 - a force-push looks necessary on any branch a sibling or the remote default shares
 - the overlap prescan shows two branches editing the same file
+- an owning session has not sent `FROZEN` and you were asked to land its branch
+- you are about to publish a commit that is not yours
 - the remote moved between your probe and your push, twice in a row — a sibling is pushing; message
   them instead of racing

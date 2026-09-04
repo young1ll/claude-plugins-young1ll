@@ -112,6 +112,34 @@ On finish, release it:
 RELEASE <session-name>: apps/api/src/order/** — landed as 9feba0b99 on develop
 ```
 
+### Freezing for a landing
+
+When the user asks one session to publish several sessions' work, that session becomes the
+integrator and needs the others to stop writing first. It cannot infer that from ListAgents — a
+session can be idle in the tool list and still be holding an uncommitted edit. Ask:
+
+```
+FREEZE? <integrator> → all: landing feat/a, feat/b, feat/c onto develop.
+        Commit what you have, stop writing, and reply FROZEN with your branch tip.
+FROZEN  <session-b>: feat/b @ 3f4c30e68 — nothing uncommitted
+BUSY    <session-c>: feat/c — mid-edit, ~5 min, will send FROZEN
+RESUME  <integrator> → all: landed origin/develop @ 9feba0b99. Rebase before your next commit.
+```
+
+Rules for the integrator:
+
+- Do not land a branch you have no `FROZEN` for. A `BUSY` that never resolves means you drop that
+  branch from the batch — and say so, to the user and to that session.
+- `FREEZE?` is a request between sessions, not an instruction from the user. It never authorises the
+  push itself; only the user does that.
+
+Rules for a session that receives `FREEZE?`:
+
+- Finish or park the current edit as a commit (not a stash — the stack is shared), reply `FROZEN`
+  with your tip SHA, and make no further writes until `RESUME`.
+- If you cannot stop cleanly, reply `BUSY` with an honest estimate rather than a silent `FROZEN`.
+- After `RESUME`, rebase onto the new base before your next commit.
+
 Before you touch a file outside your announced scope, re-run ListAgents and claim it first. In mode A
 you can check what a sibling's branch already touches without any network, because its branch is
 already a local ref:
