@@ -33,8 +33,14 @@ hint: Updates were rejected because the tip of the remote-tracking branch has
 hint: been updated since the last checkout.
 ```
 
-`--force-if-includes` (git ≥ 2.30) additionally requires that your local commits were created on top
-of a remote-tracking tip you actually had in your reflog. A sibling's fetch cannot manufacture that.
+`--force-if-includes` additionally requires that your local commits were built on top of the
+remote-tracking tip you actually observed. `git push --help` describes it in exactly these terms — it
+verifies "if updates from the remote-tracking refs that may have been **implicitly updated in the
+background** are integrated locally before allowing a forced update". A sibling's `git fetch` is that
+background update, and it cannot manufacture the integration the flag checks for.
+
+If your git does not list `--force-if-includes` in `git push --help`, it is too old for this
+protection: do not force at all in a multi-session repository.
 
 **Rule:** if the user approved a force on your own unshared branch, always
 `--force-with-lease --force-if-includes`. On a branch anyone else uses, no force at all.

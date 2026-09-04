@@ -137,8 +137,10 @@ $ git push origin feat/p3 feat/p9
 ```
 
 A half-landed batch is worse than a failed one: reviewers see a partial set, and CI runs on a
-combination nobody intended. Always `--atomic` for multi-ref pushes. A server without atomic support
-reports it and applies nothing.
+combination nobody intended. Always `--atomic` for multi-ref pushes. Per `git push --help`: "Use an
+atomic transaction on the remote side if available. Either all refs are updated, or on error, no refs
+are updated. If the server does not support atomic pushes the push will fail." — so the failure mode
+of an unsupporting server is a refused push, never a partial one.
 
 Then one PR per branch, if the user asked for PRs:
 

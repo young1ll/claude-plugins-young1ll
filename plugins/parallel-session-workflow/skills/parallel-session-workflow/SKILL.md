@@ -214,8 +214,10 @@ commits nothing, so its files are still unstaged.
 
 ### The stash stack is shared
 
-Every worktree of a repository shares one stash stack, so a bare `git stash pop` can restore another
-session's work into yours. Prefer a temporary WIP commit. If you must stash:
+Every worktree of a repository shares one stash stack — `refs/stash` is a single ref. Observed: an
+entry stashed in one worktree appears in a sibling's `git stash list`, and the sibling's `git stash
+pop` applies it onto *its* branch and empties the stack for the original owner. Prefer a temporary WIP
+commit. If you must stash:
 
 ```bash
 git stash push -u -m "<unique-tag>"
