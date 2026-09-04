@@ -74,6 +74,11 @@ Done by **one** session (the integrator), in its own checkout, holding a `FROZEN
 from every owning session. Do not start the loop on a branch you have no `FROZEN` for — a session
 that is idle in ListAgents can still be holding an uncommitted edit.
 
+Some owners can never send one. A cloud session receives your `FREEZE?` but cannot reply, and an
+offline Remote Control row will not see it at all; the **parallel-session-workflow** skill's "Know
+which siblings can actually answer" table says which is which. Drop those branches from the batch
+before you start rather than waiting on a reply that cannot arrive.
+
 ```bash
 BASE=develop
 set -- feat/shared-config feat/a feat/b        # ordered per Step 2

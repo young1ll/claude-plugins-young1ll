@@ -3,6 +3,11 @@
 Properties of git itself, not of any agent or harness. They hold whichever tool you drive them with,
 and they outlive tool names — when the surrounding procedures rot, this file should not.
 
+> **Verified against git 2.50.1 (Apple Git-155), macOS, 2026-09-04 — 25 checks, 0 failures.**
+> Every executable claim in these two skills was run, not recalled. Re-run them on your own version
+> with `bash verify.sh` (next to this file); it works in a temp directory and touches nothing else. If a check
+> fails on a newer git, the file is wrong and the check is right.
+
 Scope split with the sibling references:
 
 - **this file** — what is shared no matter which mode you are in, and how to recover

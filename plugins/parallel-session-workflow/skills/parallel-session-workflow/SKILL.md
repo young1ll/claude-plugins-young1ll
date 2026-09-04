@@ -81,6 +81,32 @@ absence. Cross the two: git says whether you are sharing, ListAgents says with w
 Re-check before any wide-blast-radius action (rewinding history, touching a shared file, pushing).
 The session list at minute 0 is not the session list at minute 40 — and neither is `HEAD`.
 
+## Know which siblings can actually answer
+
+`ListAgents` lists more kinds of session than you can hold a conversation with, and every protocol
+below assumes a reply. Read the kind on each row before you depend on one.
+
+| Row kind | Receives your message | Can reply | Usable for a `FREEZE?` handshake |
+| --- | --- | --- | --- |
+| interactive, this machine | yes | yes | yes |
+| background job, this machine | yes | yes | yes — but nobody may be reading it |
+| cloud | yes | **no** | **no** |
+| Remote Control, `offline` | not now | not now | **no** |
+| a subagent you spawned | yes | to its parent | it is not a peer — see below |
+
+- **A cloud session cannot send `FROZEN`.** It receives your message and cannot message any session
+  back. Never block a landing on a reply that cannot arrive: drop it from the batch and say so, the
+  same as an unresolved `BUSY`.
+- **A subagent is not a peer.** Its `SendMessage` goes out under the *parent session's* address and
+  replies land in the parent's conversation, not the subagent's. The parent runs the handshake on
+  their behalf; a subagent must not be asked to hold a claim.
+- **`notify_when_idle` is local and main-conversation-only.** It does not reach cloud or Remote
+  Control rows, and a subagent cannot subscribe.
+- **Idle is not frozen** for any kind. It reports a finished turn, not a committed tree.
+
+Filter the roster before you send. An unanswerable `FREEZE?` is indistinguishable from a session
+ignoring you, and that difference decides whether you wait or proceed.
+
 ## Choose an operating mode
 
 Decide once, explicitly, and say which mode you are in. The project's own convention wins over your
@@ -93,8 +119,24 @@ preference; if the repository or its CLAUDE.md mandates a mode, follow it and do
 | Costs | fresh checkout per session (deps, `.env`) | every git write is a shared-state mutation |
 | Good when | independent tasks, review per branch | the user wants one branch as the single progress window |
 
-If nothing forces the choice, prefer **A**. Choose **B** only when the project asks for it — and then
-read `references/shared-checkout.md`, because B's safety is entirely procedural.
+Prefer **A** *when the choice is yours* — the harness enforces it, so its safety does not depend on
+you remembering anything. But the choice is often not yours, and B is not the exotic case. You are in
+B, chosen or not, when any of these hold:
+
+- the project pins one integration branch and wants it as the single progress window
+- your session was launched to work in place — background jobs commonly are
+- you were already mid-task in the main checkout when a sibling appeared
+
+Which one you are in is a fact you can read, not a preference (verified in `verify.sh`):
+
+```bash
+[ "$(git rev-parse --git-dir)" = "$(git rev-parse --git-common-dir)" ] \
+  && echo "main checkout — mode B rules apply" \
+  || echo "worktree — mode A"
+```
+
+B's safety is **entirely procedural**; nothing enforces it. Read `references/shared-checkout.md`
+before your next git write.
 
 You cannot fake mode B with worktrees — git refuses to check one branch out twice, so one branch
 means one checkout (`references/git-facts.md`).
@@ -140,14 +182,23 @@ and config all stay shared — `references/git-facts.md` — and the remote is n
 
 ## Mode B — shared checkout
 
-All sessions share the working tree, the index, HEAD, and the stash. Full mechanics, hazards and
-recipes are in `references/shared-checkout.md`. The three rules that matter most:
+The working tree, the index, HEAD and the stash are all one copy. There is no isolation to fall back
+on, so every rule here is load-bearing rather than advisory. Full mechanics and recipes:
+`references/shared-checkout.md`.
 
-- **Stage and commit by explicit path**, so a sibling's staged files never ride along with your
-  commit: `git add <my paths> && git commit -m "…" -- <my paths>`. Never `git add -A` or `git add .`.
-- **Serialize git writes.** Never issue two commits (or a commit and an `add`) in parallel Bash calls.
-- **Never switch branches** — `git checkout` / `git switch` rewrites the working tree under every
-  sibling at once.
+- **Stage and commit by explicit path.** A bare `git commit` sweeps in whatever a sibling has staged:
+  `git add <my paths> && git commit -m "…" -- <my paths>`. Never `git add -A` or `git add .`.
+- **Serialize git writes.** Never issue two commits, or a commit and an `add`, in parallel Bash
+  calls — they collide on `.git/index.lock` and the loser stages nothing while reporting nothing.
+- **Never switch branches.** `git checkout` / `git switch` rewrites the working tree under every
+  sibling at once, mid-edit.
+- **Do not stash.** The stack is shared and a sibling's `pop` empties it (`references/git-facts.md`).
+  Park work as a commit instead — that is also what a `FROZEN` reply should point at.
+- **Re-read HEAD before acting on it.** A sibling can commit between two of your tool calls. Record
+  `git rev-parse HEAD` after each of your commits and re-check before any wide action.
+- **Commit early so ownership is legible.** Your uncommitted edits show up in a sibling's
+  `git status`, and neither of you can tell whose lines are whose from `git diff` alone. History can
+  answer that question; a shared working tree cannot.
 
 ## Claim your file scope
 
@@ -166,6 +217,36 @@ On finish, release it:
 RELEASE <session-name>: apps/api/src/order/** — landed as 9feba0b99 on develop
 ```
 
+### When there is no address
+
+A claim only helps if it reaches the other party, and `ListAgents` cannot always give you one — a
+human in another terminal, a different agent, a session that starts after yours. Fall back to a claim
+file that every worktree of the repository can read:
+
+```bash
+CLAIMS="$(git rev-parse --git-common-dir)/claims"; mkdir -p "$CLAIMS"
+{ echo "SCOPE apps/api/src/order/**"
+  echo "BASE  develop @ $(git rev-parse --short HEAD)"
+  echo "MODE  B"
+  echo "PID   $$"; } > "$CLAIMS/<session-name>"
+```
+
+Read the others before you start, and remove yours on release:
+
+```bash
+for c in "$CLAIMS"/*; do [ "$c" = "$CLAIMS/<session-name>" ] || { echo "== $c"; cat "$c"; }; done
+rm -f "$CLAIMS/<session-name>"
+```
+
+That location, and not a path in the working tree — all four verified in `references/verify.sh`:
+`--git-common-dir` resolves to the same directory from every worktree, so siblings read it with no
+messaging; the file never appears in `git status`, so it cannot be committed by accident; it survives
+`git clean -fdx`; and a `.claude/claims/` file fails the second test — it shows up as untracked.
+
+A claim outlives the session that wrote it. Before honouring one, check the owner is still alive with
+`kill -0 <pid>`; treat a claim whose owner is gone as stale, and say that you are reaping it rather
+than deleting it silently.
+
 ### Freezing for a landing
 
 When the user asks one session to publish several sessions' work, that session becomes the
@@ -182,8 +263,12 @@ RESUME  <integrator> → all: landed origin/develop @ 9feba0b99. Rebase before y
 
 Rules for the integrator:
 
-- Do not land a branch you have no `FROZEN` for. A `BUSY` that never resolves means you drop that
-  branch from the batch — and say so, to the user and to that session.
+- **Filter the roster first.** Send `FREEZE?` only to sessions that can answer — see "Know which
+  siblings can actually answer". A cloud or offline row will never reply, and waiting on it looks
+  identical to being ignored.
+- Do not land a branch you have no `FROZEN` for. A `BUSY` that never resolves, or an owner that
+  cannot reply at all, means you drop that branch from the batch — and say so, to the user and to
+  that session.
 - `FREEZE?` is a request between sessions, not an instruction from the user. It never authorises the
   push itself; only the user does that.
 
@@ -297,3 +382,8 @@ Stop and ask the user when:
 - the commits you are about to rewind are not all yours
 - the actual repo state does not match the plan
 - you have failed three times on the same approach — re-plan instead of trying a fourth
+
+Stopping is not the same as going quiet. If nobody may be reading — a background job, a session the
+user has stepped away from — do everything the answer does not gate, park the rest as a commit rather
+than a dirty tree or a stash, release or refresh your claim so a sibling is not blocked behind a
+question only you can see, and state plainly what is waiting and on what.
