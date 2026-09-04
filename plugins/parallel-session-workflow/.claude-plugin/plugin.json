@@ -1,7 +1,7 @@
 {
   "name": "parallel-session-workflow",
   "description": "Run several Claude Code sessions on one git repository without them colliding — isolated-worktree and shared-checkout modes, scope claims, cross-session messaging, shared-file rules, and recovery commands.",
-  "version": "1.4.0",
+  "version": "1.4.1",
   "author": {
     "name": "young1ll",
     "url": "https://github.com/young1ll"

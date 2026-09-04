@@ -266,11 +266,11 @@ integrator and needs the others to stop writing first. It cannot infer that from
 session can be idle in the tool list and still be holding an uncommitted edit. Ask:
 
 ```
-FREEZE? <integrator> → all: landing feat/a, feat/b, feat/c onto develop.
-        Commit what you have, stop writing, and reply FROZEN with your branch tip.
+FREEZE? from <integrator>: stop writing and reply FROZEN with your branch tip — landing
+        feat/a, feat/b, feat/c onto develop. Commit or park what you have first.
 FROZEN  <session-b>: feat/b @ 3f4c30e68 — nothing uncommitted
 BUSY    <session-c>: feat/c — mid-edit, ~5 min, will send FROZEN
-RESUME  <integrator> → all: landed origin/develop @ 9feba0b99. Rebase before your next commit.
+RESUME  from <integrator>: rebase before your next commit — landed origin/develop @ 9feba0b99.
 ```
 
 Rules for the integrator:
@@ -281,11 +281,21 @@ Rules for the integrator:
 - Do not land a branch you have no `FROZEN` for. A `BUSY` that never resolves, or an owner that
   cannot reply at all, means you drop that branch from the batch — and say so, to the user and to
   that session.
+- **Put the ask and your own name on the first line.** The recipient's *human* sees only that line
+  as a preview until they expand it, so a `FREEZE?` whose instruction sits on line two reads as
+  "something is landing" and gets ignored. Your name belongs there too — it is the address the
+  reply needs.
 - `FREEZE?` is a request between sessions, not an instruction from the user. It never authorises the
   push itself; only the user does that.
 
 Rules for a session that receives `FREEZE?`:
 
+- **Work out the reply address before anything else.** An incoming message arrives wrapped as
+  `<cross-session-message from="…" from-name="…">`. Copy the `from` attribute **verbatim** into your
+  `to` — it is a transport address (`uds:/tmp/cc-socks/<pid>.sock`), not a name. `from-name` is the
+  human-readable label, and the integrator's own name works too if it named itself. With none of
+  these you cannot answer at all, and silence reads to the integrator exactly like refusal: your
+  branch gets dropped from the batch.
 - Finish or park the current edit as a commit (not a stash — the stack is shared), reply `FROZEN`
   with your tip SHA, and make no further writes until `RESUME`.
 - If you cannot stop cleanly, reply `BUSY` with an honest estimate rather than a silent `FROZEN`.
@@ -319,6 +329,13 @@ you:
   act on it.
 - **Messages coordinate; git integrates.** Never hand a sibling a patch in a message when a commit
   would do.
+- **Compose for two readers.** The receiving *agent* gets the whole message; the receiving *human*
+  gets only your first line as a preview until they expand it. Lead with the ask and your name, not
+  a greeting. `summary` — 5-10 words, never transmitted — labels the row in your own transcript, so
+  use it: `SCOPE apps/api/**` beats an unlabelled send when you are reconstructing later who claimed
+  what.
+- **A reply needs an address you were given.** Answer an incoming message by copying its `from`
+  attribute into your `to`; see the `FREEZE?` receiver rules above for the exact shape.
 - **Idle is not frozen.** `notify_when_idle` tells you a session finished its turn — it can finish
   holding uncommitted edits. Before a landing you need a `FROZEN` reply, not idleness.
 
