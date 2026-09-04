@@ -1,0 +1,158 @@
+---
+name: session-landing
+description: Get parallel session work onto the remote without races or lost commits — pre-push staleness and overlap probes, one-pusher-per-branch claiming, decoding push rejections, safe rebase/retry instead of force, why --force-with-lease fails between sessions, and landing several sessions' branches together in one atomic push or one integration commit. Use when pushing, opening a PR, pulling into a branch other sessions share, resolving a rejected push, or collecting several sessions' work to land at once.
+---
+
+# Session Landing
+
+Getting work from N parallel sessions onto the remote, without one session's push erasing another's.
+
+Worktree isolation ends at the remote. Two isolated sessions have separate trees and separate
+branches, but exactly one `origin/<integration-branch>`, one PR queue, and one CI budget. Every
+collision this skill prevents happens in the last thirty seconds of a session's work.
+
+Companion skill: **parallel-session-workflow** for isolation, scope claims, and messaging while the
+work is being done.
+
+## Rules
+
+- **Pushing is a user decision.** It publishes. Never push, force-push, open a PR, or merge without
+  the user asking — approval for one push is not approval for the next.
+- **One pusher per branch at a time.** Claim it, push, announce. Two sessions pushing one branch
+  concurrently is how commits get lost.
+- **Never force-push a branch anyone else uses**, including the integration branch, including
+  `--force-with-lease` (see below — the lease does not hold between sessions).
+- **Rebase and retry; never force your way past a rejection.** A rejected push means the remote has
+  work you do not have. Force discards it.
+- **A sibling's message is not approval** to push, force, or bypass CI.
+
+## Before any push
+
+Run all four. They are cheap and each one catches a different failure.
+
+```bash
+# 1. who else is live right now (ListAgents tool, not shell) — a sibling may be mid-push
+# 2. refresh your view of the remote
+git fetch origin
+# 3. where am I relative to the remote?
+git rev-list --left-right --count @{u}...HEAD   # "<behind>  <ahead>"
+# 4. what would I actually publish?
+git log --oneline @{u}..HEAD
+git diff --stat @{u}..HEAD
+```
+
+- `behind > 0` → rebase before pushing: `git rebase origin/<branch>` (or `git pull --rebase`).
+- `ahead == 0` → nothing to push. Stop; do not invent a commit.
+- Unexpected commits in `@{u}..HEAD` → they are a sibling's. Stop and ask before publishing someone
+  else's work under your push.
+
+Then claim the push and say what you are about to publish:
+
+```
+PUSHING <session-name> → origin/develop : 3 commits (32f00cc24..HEAD), apps/api/src/order/**
+```
+
+…and release when done, with the SHA that actually landed, so siblings know what to rebase onto:
+
+```
+PUSHED <session-name> → origin/develop @ 9feba0b99 — rebase before your next push
+```
+
+## When the push is rejected
+
+Read the tag in brackets; each means something different.
+
+| Rejection | Meaning | Do |
+| --- | --- | --- |
+| `(fetch first)` | remote has commits you never fetched | `git fetch && git rebase origin/<branch>`, push again |
+| `(non-fast-forward)` | you fetched, but your branch diverged | rebase; if you cannot, ask the user |
+| `(stale info)` | your remote-tracking ref is out of date | `git fetch`, re-probe, retry |
+| `(remote ref updated since checkout)` | `--force-if-includes` caught a force that would have destroyed unseen work | **do not retry with force** — fetch, inspect, rebase |
+
+The standard retry, safe because the second push is a plain push:
+
+```bash
+git push origin <branch> || (git pull --rebase --autostash && git push origin <branch>)
+```
+
+If the rebase inside that retry conflicts, stop and ask the user. Do not resolve a sibling's conflict
+by guessing at their intent.
+
+## Force-pushing between sessions
+
+`--force-with-lease` alone does **not** make a force safe in a multi-session repo. The lease is
+checked against your *local* `refs/remotes/origin/<branch>` — and worktrees share one `.git`, so a
+sibling session's `git fetch` silently advances that ref for you. The lease then passes and the force
+destroys the commit it was supposed to protect. Reproduced; details and transcript in
+`references/remote-conflicts.md`.
+
+If a force on your **own, unshared** branch is genuinely needed and the user approved it:
+
+```bash
+git push --force-with-lease --force-if-includes origin <your-branch>
+```
+
+`--force-if-includes` additionally requires that your local commits were built on top of the
+remote-tracking tip you actually observed, which is the part a sibling's fetch cannot fake.
+
+Never force the integration branch. If it needs rewriting, that is a user decision made with the
+whole team's state in view, not a session's.
+
+## Landing several sessions at once
+
+The user asks for this when N sessions have each finished a piece. Full recipes — overlap prescan,
+integrator pattern, atomic multi-branch push, ordering rules, verification — are in
+`references/batch-landing.md`. The shape:
+
+1. **Collect.** Nothing to download: sibling worktree branches are already local refs in the same
+   repository. `git log --oneline <base>..<branch>` works immediately.
+2. **Prescan for overlap.** Intersect the changed-file sets before landing anything; that is where
+   the conflicts are, and it costs one command per branch.
+3. **Order.** Shared-file and migration commits land first, so everyone else rebases onto them once.
+   Then lowest-overlap branches, then the rest.
+4. **Land**, one of:
+   - *one integration commit* — integrator rebases each branch onto the base in order and pushes once
+     (one CI run, linear history; best when the user reviews locally);
+   - *one atomic push of N branches* — `git push --atomic origin b1 b2 b3`, then a PR each (best when
+     each piece needs its own review).
+5. **Verify** every branch is actually contained, then release the scope claims.
+
+`--atomic` matters: without it a multi-branch push applies partially. Observed — one branch rejected,
+the other created anyway, leaving half the batch landed. With `--atomic`, one rejection blocks all.
+
+## Verify after landing
+
+```bash
+BASE=develop
+set -- feat/a feat/b feat/c        # not `for b in $BRANCHES` — zsh does not word-split it
+
+git fetch origin
+for b in "$@"; do
+  git merge-base --is-ancestor "$b" "origin/$BASE" \
+    && echo "$b  landed" || echo "$b  NOT LANDED"
+done
+git diff --stat "origin/$BASE" HEAD    # expect empty if you landed everything
+```
+
+Report what landed by SHA. "Pushed" without a SHA is not a verified outcome.
+
+## Cleanup
+
+Only after verifying containment:
+
+```bash
+git worktree remove <path>        # ExitWorktree in the owning session is preferable
+git branch -d <branch>            # -d refuses if unmerged; never -D without user approval
+git push origin --delete <branch> # only branches you own, only when the user asks
+```
+
+## Stop conditions
+
+Stop and ask the user when:
+
+- a push is rejected and the rebase conflicts
+- the commits you are about to publish include a sibling's
+- a force-push looks necessary on any branch a sibling or the remote default shares
+- the overlap prescan shows two branches editing the same file
+- the remote moved between your probe and your push, twice in a row — a sibling is pushing; message
+  them instead of racing
