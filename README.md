@@ -7,34 +7,59 @@ Small, finished Claude Code plugins. Each one does its job and gets out of the w
 | Plugin | What it does |
 | --- | --- |
 | [parallel-session-workflow](./plugins/parallel-session-workflow) | Run several Claude Code sessions on one git repository without them colliding. |
+| [session-landing](./plugins/session-landing) | Get those sessions' work onto the remote — safely, and several at once. |
 
 ## Install
 
 ```
 /plugin marketplace add young1ll/done
 /plugin install parallel-session-workflow@done
+/plugin install session-landing@done
 ```
+
+The two are designed as a pair: `parallel-session-workflow` covers the work, `session-landing` covers
+the moment it reaches GitHub. Each also stands on its own.
 
 ## parallel-session-workflow
 
-Two agent sessions editing one checkout is a quiet failure mode: one session's `git reset` rewinds
+Two agent sessions on one repository is a quiet failure mode: one session's `git reset` rewinds
 another's commit, a shared staging area swallows files, `git stash pop` restores someone else's work.
-This skill gives a session the procedure to avoid that.
 
 It covers:
 
-- **Detecting parallel mode** — when to treat the environment as shared.
-- **Worktree isolation** — entering one, picking the right base branch, and what a fresh worktree is
-  missing (dependencies, untracked env files).
+- **Detecting parallel mode** — when to treat the environment as shared, and when to re-check.
+- **Two operating modes** — isolated worktree per session, or one shared checkout on one branch. Both
+  are legitimate; each has its own safety rules, and the choice has to be explicit.
+- **Worktree isolation** — entering one, picking the right base, and what a fresh worktree is missing.
+  Also what a worktree does *not* isolate: refs, the stash, remote-tracking branches.
+- **Shared-checkout discipline** — the index is shared, so `git add <path>` does not scope your
+  commit; `.git/index.lock` collisions silently drop staged files; HEAD rewinds hit everyone.
+- **Scope claims** — a message format for claiming and releasing file ownership.
 - **Cross-session messaging** — what to send, and why a sibling's message is never permission to
   bypass a check.
 - **Shared-file rules** — lockfiles, CI config, and migrations need an owner, not a conversation.
-- **Finish sequence** — rebase onto the integration branch, hand off, clean up.
-- **Recovery** — worktree removal, rebase conflicts, and the shared stash stack.
+- **Recovery** — worktrees, rebase conflicts, index locks, the shared stash, and reflog rescue.
 
-The skill activates on its own when a session detects sibling sessions, or you can invoke it by name.
-It assumes Claude Code tools (`ListAgents`, `SendMessage`, `EnterWorktree`). Without them the content
-still reads as a checklist.
+## session-landing
+
+Isolation ends at the remote. Two isolated sessions still share one `origin/<branch>`, one PR queue,
+and one CI budget.
+
+It covers:
+
+- **Pre-push probes** — staleness, what you would actually publish, and who else is live.
+- **One pusher per branch** — a claim/release protocol, because two concurrent pushes lose commits.
+- **Decoding rejections** — `(fetch first)`, `(non-fast-forward)`, `(stale info)`,
+  `(remote ref updated since checkout)` each mean something different.
+- **Why `--force-with-lease` is not a safeguard between sessions** — worktrees share `.git`, so a
+  sibling's `git fetch` advances the very ref the lease is checked against, and the force goes
+  through. Reproduced, with the transcript. `--force-if-includes` is the flag that actually holds.
+- **Landing several sessions at once** — overlap prescan, landing order, an integrator loop that
+  aborts cleanly on conflict, and `git push --atomic` so a multi-branch push cannot land halfway.
+- **Verification** — containment checks, and reporting by SHA rather than by hope.
+
+Commands in both plugins are written for zsh as well as bash, since that is the default shell on
+macOS and its word-splitting rules break the obvious `for b in $BRANCHES` form.
 
 ## License
 

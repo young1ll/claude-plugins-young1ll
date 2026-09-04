@@ -9,15 +9,40 @@
   "plugins": [
     {
       "name": "parallel-session-workflow",
-      "description": "Run several Claude Code sessions on one git repository without them colliding — worktree isolation, cross-session messaging, shared-file rules, and recovery commands.",
+      "description": "Run several Claude Code sessions on one git repository without them colliding — isolated-worktree and shared-checkout modes, scope claims, cross-session messaging, shared-file rules, and recovery commands.",
       "author": {
         "name": "young1ll"
       },
       "source": "./plugins/parallel-session-workflow",
       "category": "workflow",
-      "keywords": ["worktree", "parallel", "multi-agent", "git"],
+      "keywords": [
+        "worktree",
+        "parallel",
+        "multi-agent",
+        "git",
+        "workflow",
+        "shared-checkout"
+      ],
       "license": "MIT",
       "homepage": "https://github.com/young1ll/done/tree/main/plugins/parallel-session-workflow"
+    },
+    {
+      "name": "session-landing",
+      "description": "Get parallel session work onto the remote without races — pre-push probes, one-pusher-per-branch claiming, safe rebase-and-retry instead of force, and landing several sessions' branches in one atomic push.",
+      "author": {
+        "name": "young1ll"
+      },
+      "source": "./plugins/session-landing",
+      "category": "workflow",
+      "keywords": [
+        "git",
+        "push",
+        "parallel",
+        "multi-agent",
+        "rebase"
+      ],
+      "license": "MIT",
+      "homepage": "https://github.com/young1ll/done/tree/main/plugins/session-landing"
     }
   ]
 }
